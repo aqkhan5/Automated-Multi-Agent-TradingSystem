@@ -1,302 +1,161 @@
 ---
 name: trading-analysis
-description: Multi-agent trading analysis for a stock ticker. Runs technical, news, fundamentals, and macro analysts in parallel, then an adversarial bull/bear debate, then Research Manager, Trader, and Portfolio Manager to produce a final BUY/SELL/HOLD decision with entry, stop, and sizing.
+description: Executes multi-agent quantitative and qualitative trading analysis on equities and cryptocurrencies. Runs parallel technical, news, fundamentals, and macro analysts, orchestrates an adversarial bull/bear debate, and synthesizes a final portfolio decision with entry, stop-loss, and capital allocation sizing. This skill should be used when evaluating trading opportunities, conducting deep equity research, or generating algorithmic trade signals.
 ---
 
-Extract the ticker symbol from $ARGUMENTS (e.g. "NVDA"). If no ticker is provided, ask the user for one before proceeding.
+# Multi-Agent Trading Analysis Skill
 
-Set TODAY to the current date in YYYY-MM-DD format.
+Conduct end-to-end multi-agent trading research combining quantitative metrics, company fundamentals, macro trends, and an adversarial bull/bear debate to produce executable portfolio decisions.
 
-## Phase 1 — Parallel Data Analysis
+## What This Skill Does
 
-Spawn these 4 subagents IN PARALLEL using the Agent tool (all at once, do not wait for one before starting the others). Each subagent has Bash access to fetch data.
+- Dispatches parallel analyst nodes (Technical, Sentiment, Fundamentals, Macro) using real-time market data extraction.
+- Simulates an adversarial debate between a dedicated Bull advocate, a Bear challenger, and a conservative Risk auditor.
+- Directs a Research Manager to evaluate debate evidence and assign an investment thesis rating.
+- Directs a Trader and Portfolio Manager to calculate volatility-adjusted price bounds, stop-losses, and position sizing.
 
-**Subagent 1 — Technical Analyst:**
-```
-You are a technical analyst for $TICKER as of $TODAY.
+## What This Skill Does NOT Do
 
-Fetch data:
-```bash
-uv run --project /Users/davidchen/repo/TradingAgents python /Users/davidchen/repo/TradingAgents/scripts/fetch_market_data.py --ticker $TICKER --type technical --date $TODAY
-```
-
-Write a technical analysis report (150-200 words) covering:
-- Trend: price vs EMA10, SMA50, SMA200 — bullish/bearish structure
-- Momentum: RSI level, MACD direction and histogram
-- Volatility: ATR relative to price, Bollinger band position
-- Key levels: nearest support and resistance based on recent closes
-
-End with exactly: TECHNICAL SIGNAL: BULLISH, BEARISH, or NEUTRAL
-```
-
-**Subagent 2 — News & Sentiment Analyst:**
-```
-You are a news and sentiment analyst for $TICKER as of $TODAY.
-
-Fetch data:
-```bash
-uv run --project /Users/davidchen/repo/TradingAgents python /Users/davidchen/repo/TradingAgents/scripts/fetch_market_data.py --ticker $TICKER --type news --date $TODAY
-```
-
-Write a sentiment report (150-200 words) covering:
-- Top 3 most impactful headlines and their market implications
-- Overall sentiment: positive, negative, or mixed
-- Any sector tailwinds/headwinds visible in the news
-- Any earnings, guidance, or analyst signals
-
-End with exactly: SENTIMENT SIGNAL: POSITIVE, NEGATIVE, or NEUTRAL
-```
-
-**Subagent 3 — Fundamentals Analyst:**
-```
-You are a fundamentals analyst for $TICKER as of $TODAY.
-
-Fetch data:
-```bash
-uv run --project /Users/davidchen/repo/claude-trading-agents python /Users/davidchen/repo/claude-trading-agents/scripts/fetch_market_data.py --ticker $TICKER --type fundamentals --date $TODAY
-```
-
-Write a fundamentals report (200-250 words) covering:
-- Valuation: trailing P/E, forward P/E, PEG ratio (forward PE / earnings growth), P/B vs sector norms
-- Growth: revenue growth, earnings growth trajectory
-- Quality: gross/operating margins, ROE, free cash flow
-- Balance sheet: total debt, total cash, D/E ratio (totalDebt / (totalDebt + stockholders equity)), current ratio
-- Risk metrics: beta, short ratio
-- Quarterly financials: cite 1-2 key line items from quarterly_income_stmt and quarterly_balance_sheet (e.g. quarterly revenue, net income, total assets)
-- Analyst consensus: mean recommendation (1=Strong Buy, 5=Sell), price target vs current price
-
-End with exactly: FUNDAMENTAL SIGNAL: STRONG, FAIR, or WEAK
-```
-
-**Subagent 4 — Macro Analyst:**
-```
-You are a macro analyst providing global market context as of $TODAY.
-
-Fetch data:
-```bash
-uv run --project /Users/davidchen/repo/claude-trading-agents python /Users/davidchen/repo/claude-trading-agents/scripts/fetch_market_data.py --ticker MACRO --type macro --date $TODAY
-```
-
-Write a macro context report (100-150 words) covering:
-- Key macro themes visible in S&P 500, Treasury yield, oil, and gold news
-- Any geopolitical, monetary policy, or economic signals that could affect equities
-- Overall macro environment: risk-on, risk-off, or neutral
-
-End with exactly: MACRO SIGNAL: RISK-ON, RISK-OFF, or NEUTRAL
-```
-
-Wait for all 4 subagents to complete. Collect their full reports.
+- Rely on unverified subjective sentiment without underlying market data.
+- Guarantee investment profits or act as an accredited financial advisor.
+- Execute live market orders directly without user confirmation.
 
 ---
 
-## Phase 2 — Adversarial Bull/Bear Debate
+## Before Implementation
 
-Run these 2 subagents SEQUENTIALLY: Bull first, then Bear receives Bull's full argument.
+Gather context to anchor the analysis:
 
-**Subagent 5 — Bull Analyst:**
-```
-You are a Bull Analyst advocating for investing in $TICKER. Your task is to build
-a strong, evidence-based case emphasizing growth potential, competitive advantages,
-and positive market indicators.
-
-Key points to focus on:
-- Growth Potential: Highlight market opportunities, revenue projections, and scalability.
-- Competitive Advantages: Emphasize unique products, strong branding, or dominant market positioning.
-- Positive Indicators: Use financial health, industry trends, and recent positive news as evidence.
-- Engagement: Present your argument conversationally. Be direct and confident.
-
-Resources available:
-
-TECHNICAL REPORT:
-[insert full technical report from Phase 1]
-
-NEWS REPORT:
-[insert full news report from Phase 1]
-
-MACRO REPORT:
-[insert full macro report from Phase 1]
-
-FUNDAMENTALS REPORT:
-[insert full fundamentals report from Phase 1]
-
-Write 150-200 words. Use specific data points from the reports above.
-
-End with exactly: BULL CONVICTION: HIGH, MEDIUM, or LOW
-```
-
-Wait for Subagent 5 to complete. Collect the full bull report.
-
-**Subagent 6 — Bear Analyst:**
-```
-You are a Bear Analyst making the case against investing in $TICKER. Your goal is
-to present a well-reasoned argument emphasizing risks, challenges, and negative
-indicators — and to directly rebut the Bull Analyst's specific claims.
-
-Key points to focus on:
-- Risks and Challenges: Market saturation, financial instability, or macroeconomic threats.
-- Competitive Weaknesses: Weaker positioning, declining innovation, or threats from competitors.
-- Negative Indicators: Use financial data, market trends, or adverse news.
-- Macro Risks: Use the macro report to identify broader market headwinds.
-- Bull Counterpoints: Critically analyze each of the bull's specific claims below with data
-  and sound reasoning, exposing weaknesses or over-optimistic assumptions.
-- Engagement: Respond conversationally and directly to what the Bull said — don't just list facts.
-
-Resources available:
-
-TECHNICAL REPORT:
-[insert full technical report from Phase 1]
-
-NEWS REPORT:
-[insert full news report from Phase 1]
-
-MACRO REPORT:
-[insert full macro report from Phase 1]
-
-FUNDAMENTALS REPORT:
-[insert full fundamentals report from Phase 1]
-
-BULL ANALYST'S ARGUMENT (respond to this directly):
-[insert full bull report from Subagent 4]
-
-Write 150-200 words. Rebut the bull's specific arguments using data from the reports.
-
-End with exactly: BEAR CONVICTION: HIGH, MEDIUM, or LOW
-```
-
-Wait for Subagent 6 to complete. Collect the full bear report.
-
-**Subagent 7 — Risk Analyst:**
-```
-You are a conservative Risk Analyst. Your job is NOT to repeat what the Bull or Bear
-said — it is to stress-test the trade from a risk management perspective and surface
-factors that neither side adequately addressed.
-
-Focus on:
-- Downside scenarios: what would have to go wrong for a meaningful loss to occur?
-- Balance sheet risk: leverage (D/E ratio), liquidity (current ratio), debt obligations
-- Volatility and beta: what does high beta imply for position sizing and drawdown risk?
-- Concentration and crowding risk: is the analyst consensus too one-sided?
-- Macro tail risks: which macro signals from the macro report pose the biggest threat?
-- Any risk the Bull and Bear both glossed over
-
-Resources available:
-
-FUNDAMENTALS REPORT:
-[insert full fundamentals report from Phase 1]
-
-MACRO REPORT:
-[insert full macro report from Phase 1]
-
-BULL ARGUMENT:
-[insert full bull report]
-
-BEAR ARGUMENT:
-[insert full bear report]
-
-Write 150-200 words. Be specific — cite numbers (beta, D/E, short ratio, yield levels).
-Do not simply side with the bear. Raise risks that neither analyst addressed.
-
-End with exactly: RISK LEVEL: HIGH, MEDIUM, or LOW
-```
-
-Wait for Subagent 7 to complete. Collect the full risk report.
+| Source | Gather |
+|---|---|
+| **Market Data** | Extract live metrics using `python scripts/fetch_market_data.py --ticker $TICKER --type [technical|news|fundamentals|macro]` |
+| **Skill References** | Indicators in `references/technical_indicators.md`, risk models in `references/quantitative_risk_models.md`, and debate rubric in `references/adversarial_debate_framework.md` |
+| **User Parameters** | Target asset ticker, investment horizon (intraday scalp vs macro position), and portfolio capital base |
 
 ---
 
-## Phase 3 — Research Manager
+## Required Clarifications
 
-You are now the Research Manager and debate facilitator. Your role is to critically
-evaluate the bull/bear debate and deliver a clear, actionable investment plan for
-the trader.
+### Required
+1. **Asset Ticker**: Ticker symbol (e.g. `AAPL`, `NVDA`, `TSLA`, `BTC-USD`).
+2. **Analysis Horizon**: Swing trade, intraday momentum, or macro position.
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction in the bull thesis; recommend taking or growing the position
-- **Overweight**: Constructive view; recommend gradually increasing exposure
-- **Hold**: Balanced view; recommend maintaining the current position
-- **Underweight**: Cautious view; recommend trimming exposure
-- **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
+### Optional
+3. **Capital Baseline**: Total portfolio capital (defaults to $10,000.00).
+4. **Risk Profile**: Standard 1% capital-at-risk vs conservative 0.5%.
 
-Commit to a clear stance whenever the debate's strongest arguments warrant one;
-reserve Hold for situations where the evidence on both sides is genuinely balanced.
+---
 
-**Debate to evaluate:**
+## Execution Workflow
 
-BULL ANALYST:
-[insert full bull report]
+```
+[ Parallel Data Ingestion ] ──► [ Adversarial Debate ] ──► [ Research Manager ] ──► [ PM Decision ]
+ (Tech, News, Fund, Macro)       (Bull vs Bear vs Risk)        (Rating & Thesis)       (Entry, Stop, Sizing)
+```
 
-BEAR ANALYST:
-[insert full bear report]
+### Phase 1 — Parallel Data Analysis
 
-RISK ANALYST:
-[insert full risk report from Subagent 7]
+Execute data extraction commands and analyze the four market vectors in parallel:
 
-Output your investment plan in this format:
+#### Node 1 — Technical Analyst
+Fetch data:
+```bash
+python scripts/fetch_market_data.py --ticker $TICKER --type technical
+```
+Synthesize trend structure (EMA10, SMA50, SMA200), momentum (RSI-14, MACD histogram), volatility (ATR-14, Bollinger Bands), and nearest support/resistance levels.
+End with: `TECHNICAL SIGNAL: [BULLISH / BEARISH / NEUTRAL]`
+
+#### Node 2 — News & Sentiment Analyst
+Fetch data:
+```bash
+python scripts/fetch_market_data.py --ticker $TICKER --type news
+```
+Evaluate top headlines, sector tailwinds/headwinds, earnings guidance, and overall narrative tone.
+End with: `SENTIMENT SIGNAL: [POSITIVE / NEGATIVE / NEUTRAL]`
+
+#### Node 3 — Fundamentals Analyst
+Fetch data:
+```bash
+python scripts/fetch_market_data.py --ticker $TICKER --type fundamentals
+```
+Evaluate valuation (trailing/forward P/E, PEG, P/B), operating margins, free cash flow, leverage (debt-to-equity, current ratio), and analyst target consensus.
+End with: `FUNDAMENTAL SIGNAL: [STRONG / FAIR / WEAK]`
+
+#### Node 4 — Macro Analyst
+Fetch data:
+```bash
+python scripts/fetch_market_data.py --ticker MACRO --type macro
+```
+Assess broader market conditions (S&P 500, 10-Year Treasury Yield, Gold, and Crude Oil) and global liquidity environment.
+End with: `MACRO SIGNAL: [RISK-ON / RISK-OFF / NEUTRAL]`
+
+---
+
+### Phase 2 — Adversarial Bull/Bear Debate
+
+Run sequential debate rounds using data from Phase 1:
+
+1. **Bull Analyst**:
+   - Construct the strongest data-backed upside thesis emphasizing growth catalysts, margin expansion, and bullish setups.
+   - Conclude with: `BULL CONVICTION: [HIGH / MEDIUM / LOW]`
+2. **Bear Analyst**:
+   - Receives the Bull's case and directly rebuts specific claims using balance sheet weaknesses, macro headwinds, or valuation multiples.
+   - Conclude with: `BEAR CONVICTION: [HIGH / MEDIUM / LOW]`
+3. **Risk Auditor**:
+   - Stress-tests the trade from a capital preservation perspective. Surfaces tail risks, liquidity limits, and downside drawdowns ignored by the Bull and Bear.
+   - Conclude with: `RISK LEVEL: [HIGH / MEDIUM / LOW]`
+
+---
+
+### Phase 3 — Research Manager Synthesis
+
+Arbitrate the debate and assign an explicit rating based on [references/adversarial_debate_framework.md](references/adversarial_debate_framework.md):
+
 ```
 RECOMMENDATION: [Buy / Overweight / Hold / Underweight / Sell]
-
-RATIONALE: [2-3 sentences — who won the debate and why, citing specific evidence]
-
-STRATEGIC ACTIONS: [2-3 sentences — what the trader should specifically do: entry approach, sizing, conditions to watch]
+RATIONALE: [2-3 sentences specifying which case won the debate and why, citing metrics]
+STRATEGIC ACTIONS: [2-3 sentences detailing tactical execution conditions]
 ```
 
 ---
 
-## Phase 4 — Trader
+### Phase 4 — Quantitative Trader & Risk Parameters
 
-You are a Trader converting the Research Manager's plan into a concrete transaction proposal.
-Anchor your reasoning in the analyst reports and the investment plan. Be specific on price levels.
+Calculate exact order parameters using [references/quantitative_risk_models.md](references/quantitative_risk_models.md):
+- **Entry**: Current price or support level pull-back.
+- **Take-Profit**: Resistance pivot $- (0.2 \times ATR_{14})$.
+- **Stop-Loss**: Support pivot $- (0.5 \times ATR_{14})$.
+- **Position Size**: 1% capital-at-risk formula ($R_{\max} / |P_{\text{entry}} - P_{\text{stop}}|$), clamped to a 10% maximum portfolio concentration.
+- **R:R Check**: Verify $|P_{\text{TP}} - P_{\text{entry}}| / |P_{\text{entry}} - P_{\text{stop}}| \ge 1.5$.
 
-INVESTMENT PLAN FROM RESEARCH MANAGER:
-[insert Research Manager output from Phase 3]
+---
 
-TECHNICAL REPORT (for price levels):
-[insert full technical report from Phase 1]
+### Phase 5 — Portfolio Manager Final Decision
 
-Output your transaction proposal in this format:
-```
-ACTION: [Buy / Hold / Sell]
+Deliver the final executive trade directive in this standard format:
 
-REASONING: [2-3 sentences anchored in the reports — why this action, why now]
-
-ENTRY: $[specific price level, or range, based on technical support/resistance]
-STOP: $[specific price level — where the thesis is invalidated]
-SIZE: [e.g. "3-5% of portfolio, add in 2 tranches" or "maintain current position"]
+```markdown
+### 🏛️ PORTFOLIO MANAGER EXECUTIVE DECISION
+- **TICKER**: [Ticker Symbol]
+- **ACTION**: [BUY / SELL / HOLD]
+- **RATING**: [Buy / Overweight / Hold / Underweight / Sell]
+- **ENTRY TARGET**: $[Price]
+- **TAKE PROFIT**: $[Price]
+- **STOP LOSS**: $[Price]
+- **POSITION SIZE**: [Number of Shares / Allocated USD (% of Portfolio)]
+- **BULL THESIS**: [Single strongest quantitative bull argument]
+- **BEAR THESIS**: [Single strongest quantitative bear argument]
+- **FINAL VERDICT**: [Executive summary justifying the decision and risk parameters]
 ```
 
 ---
 
-## Phase 5 — Portfolio Manager Decision
+## Output Quality Checklist
 
-You are now the Portfolio Manager. Synthesize all inputs and deliver the final decision.
+Before finalizing the decision, verify:
 
-RESEARCH MANAGER'S PLAN:
-[insert Phase 3 output]
-
-TRADER'S PROPOSAL:
-[insert Phase 4 output]
-
-BULL ARGUMENT:
-[insert bull report]
-
-BEAR ARGUMENT:
-[insert bear report]
-
-RISK ANALYST:
-[insert full risk report]
-
-Output the final decision in this EXACT format:
-```
-TICKER: [ticker]
-DATE: [today]
-SIGNAL: [BUY / SELL / HOLD]
-RATING: [Overweight / Equal Weight / Underweight]
-ENTRY: $[price from Trader]
-STOP: $[price from Trader]
-SIZE: [sizing from Trader]
-
-BULL: [one sentence — the single strongest bull argument]
-BEAR: [one sentence — the single strongest bear argument]
-VERDICT: [2-3 sentences — why the bull or bear case won and what specifically to do]
-```
-
-Display the full PM decision to the user.
+- [ ] Technical, News, Fundamentals, and Macro scripts executed successfully.
+- [ ] Debate features specific data citations (exact P/E, RSI, debt numbers) rather than generalizations.
+- [ ] Risk-to-Reward ratio is explicitly verified ($R:R \ge 1.5$).
+- [ ] Stop-loss is positioned using empirical ATR buffers rather than arbitrary percentages.
+- [ ] Position sizing strictly adheres to the 1% capital-at-risk model and 10% concentration ceiling.

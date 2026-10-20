@@ -3,14 +3,20 @@ from datetime import datetime, timezone, timedelta
 import yfinance as yf
 import pandas as pd
 from app.models.trading import TradingHistory
+from app.agents.tools.risk_engine import normalize_ticker
 
 async def audit_trade_status(record: TradingHistory, db_session) -> str:
     """
     Checks the chart data (via yfinance) starting from the trade's creation timestamp
     to determine whether it hit its entry, take profit, or stop loss.
-    Updates the record.status field and marks it as PROFIT, LOSS, or INACTIVE.
+    Updates the record.status field and marks it strictly in percentage format:
+    e.g. 'Trade closed with the profit of +X.XX%' or 'Trade closed with the loss of -X.XX%'.
     """
-    if record.status in ("PROFIT", "LOSS", "INACTIVE"):
+    # If trade already completed and has percentage outcome recorded, skip re-audit
+    if record.status and record.status.startswith("Trade closed"):
+        return record.status
+
+    if record.status == "INACTIVE":
         return record.status
 
     # If it was a HOLD or REJECTED trade, it never executed -> INACTIVE
@@ -32,6 +38,19 @@ async def audit_trade_status(record: TradingHistory, db_session) -> str:
         record.status = "INACTIVE"
         db_session.add(record)
         return "INACTIVE"
+
+    # Convert legacy static PROFIT / LOSS entries to percentage representation
+    is_buy = record.action in ("BUY", "STRONG BUY")
+    if record.status == "PROFIT":
+        profit_pct = abs((tp - entry) / entry) * 100
+        record.status = f"Trade closed with the profit of +{profit_pct:.2f}%"
+        db_session.add(record)
+        return record.status
+    elif record.status == "LOSS":
+        loss_pct = abs((sl - entry) / entry) * 100
+        record.status = f"Trade closed with the loss of -{loss_pct:.2f}%"
+        db_session.add(record)
+        return record.status
 
     start_time = record.timestamp
     if start_time and start_time.tzinfo is not None:
@@ -58,7 +77,7 @@ async def audit_trade_status(record: TradingHistory, db_session) -> str:
         interval = "1h"
 
     try:
-        ticker = record.ticker.upper().strip()
+        ticker = normalize_ticker(record.ticker)
         stock = yf.Ticker(ticker)
 
         start_str = start_time.strftime("%Y-%m-%d")
@@ -91,7 +110,6 @@ async def audit_trade_status(record: TradingHistory, db_session) -> str:
         trade_time_utc = pd.to_datetime(start_time).tz_localize('UTC')
         df = df[df.index >= trade_time_utc]
 
-        is_buy = record.action in ("BUY", "STRONG BUY")
         status = "RUNNING"
 
         for _, row in df.iterrows():
@@ -101,18 +119,22 @@ async def audit_trade_status(record: TradingHistory, db_session) -> str:
             if is_buy:
                 # Long position targets: hits Stop Loss first or Take Profit first
                 if low <= sl:
-                    status = "LOSS"
+                    loss_pct = abs((sl - entry) / entry) * 100
+                    status = f"Trade closed with the loss of -{loss_pct:.2f}%"
                     break
                 elif high >= tp:
-                    status = "PROFIT"
+                    profit_pct = abs((tp - entry) / entry) * 100
+                    status = f"Trade closed with the profit of +{profit_pct:.2f}%"
                     break
             else:
                 # Short position targets: hits Stop Loss first or Take Profit first
                 if high >= sl:
-                    status = "LOSS"
+                    loss_pct = abs((sl - entry) / entry) * 100
+                    status = f"Trade closed with the loss of -{loss_pct:.2f}%"
                     break
                 elif low <= tp:
-                    status = "PROFIT"
+                    profit_pct = abs((entry - tp) / entry) * 100
+                    status = f"Trade closed with the profit of +{profit_pct:.2f}%"
                     break
 
         record.status = status

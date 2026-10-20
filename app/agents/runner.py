@@ -1,8 +1,7 @@
 import json
 import re
-from typing import Optional
+from typing import Optional, Dict, Any
 from agents import Runner
-from agents.extensions.memory.sqlalchemy_session import SQLAlchemySession
 
 from app.core.config import settings
 from app.db.session import get_db_engine, get_async_session_factory
@@ -10,7 +9,11 @@ from app.models.base import Base
 from app.models.trading import TradingHistory
 from app.schemas.trading import FinalTradingDecision
 from app.agents.nodes.manager import create_manager_agent
-from app.agents.tools.risk_engine import normalize_ticker, evaluate_dynamic_risk
+from app.agents.tools.risk_engine import (
+    normalize_ticker,
+    evaluate_dynamic_risk,
+    calculate_deterministic_trade_bounds
+)
 
 async def run_trading_desk(
     ticker_input: str,
@@ -55,63 +58,112 @@ async def run_trading_desk(
             input=prompt_input
         )
 
-        # Extract text from final_output or search recent items if empty
+        # -------------------------------------------------------------
+        # 1. EXTRACT DECISION PAYLOAD FROM RESULT OR TURNS
+        # -------------------------------------------------------------
         text = (result.final_output or "").strip()
-        if not text and hasattr(result, "_model_input_items"):
+        analyst_cache: Dict[str, Any] = {}
+
+        # Search turns in reverse if final_output is empty or incomplete
+        if hasattr(result, "_model_input_items"):
             for item in reversed(result._model_input_items):
                 item_text = getattr(item, "text", "") or getattr(item, "output", "") or ""
-                if "{" in item_text and "}" in item_text:
+                # Check if this item is a FinalTradingDecision block
+                if not text and '"action"' in item_text and '"risk_status"' in item_text:
                     text = item_text.strip()
-                    break
+                # Cache Analyst data if available as fallback
+                if not analyst_cache and '"current_price"' in item_text and ('"momentum"' in item_text or '"summary"' in item_text):
+                    try:
+                        clean_item_text = item_text
+                        if "```" in clean_item_text:
+                            m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", clean_item_text)
+                            clean_item_text = m.group(1).strip() if m else clean_item_text
+                        analyst_cache = json.loads(clean_item_text)
+                    except Exception:
+                        pass
 
-        # Strip markdown fences
+        # Strip markdown fences from decision text
         if "```" in text:
-            # Extract content between ```json ... ``` or ``` ... ```
             match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
             if match:
                 text = match.group(1).strip()
             else:
-                lines = text.splitlines()
-                lines = [l for l in lines if not l.strip().startswith("```")]
+                lines = [l for l in text.splitlines() if not l.strip().startswith("```")]
                 text = "\n".join(lines).strip()
 
-        # If still empty or not valid JSON, fallback to direct deterministic computation
         data = None
-        try:
-            data = json.loads(text)
-        except Exception:
-            # Locate first { and last } in string
-            start_idx = text.find("{")
-            end_idx = text.rfind("}")
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                data = json.loads(text[start_idx:end_idx + 1])
+        if text and '"action"' in text:
+            try:
+                data = json.loads(text)
+            except Exception:
+                start_idx = text.find("{")
+                end_idx = text.rfind("}")
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    try:
+                        data = json.loads(text[start_idx:end_idx + 1])
+                    except Exception:
+                        data = None
+
+        # -------------------------------------------------------------
+        # 2. DETERMINISTIC FALLBACK IF ORCHESTRATOR SYNTHESIS TIMED OUT
+        # -------------------------------------------------------------
+        if not data or "action" not in data or "risk_status" not in data:
+            current_price = float(analyst_cache.get("current_price", 0.0))
+            atr = float(analyst_cache.get("atr_14", 0.0))
+            supply = float(analyst_cache["nearest_supply"]) if analyst_cache.get("nearest_supply") else None
+            demand = float(analyst_cache["nearest_demand"]) if analyst_cache.get("nearest_demand") else None
+            momentum = str(analyst_cache.get("momentum", "neutral")).lower()
+
+            if momentum == "bullish":
+                sig_action = "BUY"
+            elif momentum == "bearish":
+                sig_action = "SELL"
             else:
-                # Deterministic fallback to prevent pipeline crashes
-                data = {
-                    "ticker": clean_ticker,
-                    "action": "HOLD",
-                    "risk_status": "REJECTED",
-                    "stable_capital": f"${balance:,.2f} USDT",
-                    "budget_allocation": "Allocate 0% ($0.00 USDT)",
-                    "ENTRY_PRICE": 0.0,
-                    "TAKE_PROFIT": 0.0,
-                    "STOP_LOSS": 0.0,
-                    "justification": f"System defaulted to HOLD for {clean_ticker} on {interval} timeframe due to ambiguous agent output."
-                }
+                sig_action = "HOLD"
+
+            tp, sl = calculate_deterministic_trade_bounds(
+                current_price=current_price,
+                signal_action=sig_action,
+                nearest_supply=supply,
+                nearest_demand=demand,
+                atr=atr
+            )
+
+            risk_eval = evaluate_dynamic_risk(
+                account_balance=balance,
+                interval=interval,
+                signal_action=sig_action,
+                entry_price=current_price,
+                take_profit=tp,
+                stop_loss=sl
+            )
+
+            data = {
+                "ticker": clean_ticker,
+                "action": risk_eval["action_command"],
+                "risk_status": risk_eval["risk_status"],
+                "stable_capital": risk_eval["stable_capital"],
+                "budget_allocation": risk_eval["budget_allocation"],
+                "ENTRY_PRICE": current_price,
+                "TAKE_PROFIT": tp,
+                "STOP_LOSS": sl,
+                "justification": (
+                    f"Decision synthesized via deterministic quantitative risk engine for {clean_ticker} "
+                    f"on {interval} ({strategy}). {risk_eval['justification']}"
+                )
+            }
 
         decision = FinalTradingDecision(**data)
 
         # -------------------------------------------------------------
-        # DETERMINISTIC PYTHON GUARDRAILS (Anti-Hallucination Layer)
+        # 3. CODE-ENFORCED STATE OVERRIDES & BOUNDARY CLAMPS
         # -------------------------------------------------------------
-        # 1. State Override: If Risk is REJECTED, action MUST be HOLD
         if decision.risk_status == "REJECTED" or decision.action == "HOLD":
             decision.action = "HOLD"
             decision.risk_status = "REJECTED"
             if "0%" not in decision.budget_allocation:
                 decision.budget_allocation = "Allocate 0% ($0.00 USDT)"
 
-        # 2. Boundary Integrity Clamps: Ensure no inverted Take-Profit / Stop-Loss
         if decision.action in ("BUY", "STRONG BUY") and decision.ENTRY_PRICE > 0:
             if decision.TAKE_PROFIT <= decision.ENTRY_PRICE:
                 decision.TAKE_PROFIT = round(decision.ENTRY_PRICE * 1.04, 2)

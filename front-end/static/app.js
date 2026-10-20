@@ -955,9 +955,10 @@ function Dashboard({ operator, onSignOut }) {
                                     
                                     // Determine status pill colors dynamically
                                     let statusColor = "text-[#A0A4A8]";
-                                    if (r.status === "PROFIT") statusColor = "text-[#29B86F] font-bold";
-                                    if (r.status === "LOSS") statusColor = "text-[#EF4743] font-bold";
-                                    if (r.status === "RUNNING") statusColor = "text-[#3DD9F7] font-semibold animate-pulse";
+                                    const st = (r.status || "").toLowerCase();
+                                    if (st.includes("profit")) statusColor = "text-[#29B86F] font-bold";
+                                    else if (st.includes("loss")) statusColor = "text-[#EF4743] font-bold";
+                                    else if (st.includes("running")) statusColor = "text-[#3DD9F7] font-semibold animate-pulse";
                                     
                                     return (
                                         <tr key={r.id} className="hover:bg-white hover:bg-opacity-5 transition-colors">
@@ -981,7 +982,7 @@ function Dashboard({ operator, onSignOut }) {
                                             <td className="py-2.5 text-[#EF4743]">
                                                 {r.stop_loss && r.stop_loss !== '0.0' && r.stop_loss !== '0' ? '$' + parseFloat(r.stop_loss).toFixed(2) : 'N/A'}
                                             </td>
-                                            <td className={`py-2.5 uppercase text-[9px] ${statusColor}`}>
+                                            <td className={`py-2.5 text-[9px] font-mono ${statusColor}`}>
                                                 {r.status || "RUNNING"}
                                             </td>
                                         </tr>

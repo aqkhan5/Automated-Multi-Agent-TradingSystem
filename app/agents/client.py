@@ -1,5 +1,6 @@
 import os
-from agents import OpenAIChatCompletionsModel, AsyncOpenAI
+import httpx
+from agents import OpenAIChatCompletionsModel, AsyncOpenAI, ModelSettings
 from app.core.config import settings
 
 def get_gemini_model():
@@ -14,10 +15,20 @@ def get_gemini_model():
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=settings.GEMINI_BASE_URL,
-        max_retries=settings.GEMINI_MAX_RETRIES
+        max_retries=settings.GEMINI_MAX_RETRIES,
+        timeout=httpx.Timeout(90.0, connect=20.0)
     )
 
     return OpenAIChatCompletionsModel(
         model=settings.GEMINI_MODEL,
         openai_client=client
+    )
+
+def get_agent_model_settings() -> ModelSettings:
+    """
+    Returns deterministic ModelSettings (temperature=0.0)
+    to eliminate stochastic token drift and mathematical hallucination.
+    """
+    return ModelSettings(
+        temperature=settings.GEMINI_TEMPERATURE
     )

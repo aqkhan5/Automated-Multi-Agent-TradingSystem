@@ -26,6 +26,7 @@ async def api_execute_trade(
     interval = payload.get("interval")
     period = payload.get("period")
     strategy = payload.get("strategy")
+    account_balance = payload.get("account_balance")
     
     # Use authenticated user data if available, fallback to payload values
     user_name = payload.get("user_name") or (current_user.full_name if current_user else None)
@@ -46,7 +47,8 @@ async def api_execute_trade(
             strategy=strategy,
             user_name=user_name,
             user_email=user_email,
-            user_phone=user_phone
+            user_phone=user_phone,
+            account_balance=account_balance
         )
         if not decision:
             raise HTTPException(status_code=500, detail="Multi-agent quantitative execution pipeline failed.")

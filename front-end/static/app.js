@@ -702,7 +702,7 @@ function Dashboard({ operator, onSignOut }) {
                                             value={ticker}
                                             onChange={(e) => setTicker(e.target.value)}
                                             className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-2 text-xs text-white focus:outline-none"
-                                            placeholder="BTC-USD, AAPL"
+                                            placeholder="BTC-USD, AAPL, CL=F (Oil), GC=F (Gold)"
                                         />
                                         <button 
                                             onClick={() => fetchChart(ticker, activeStrat)}
@@ -714,16 +714,17 @@ function Dashboard({ operator, onSignOut }) {
                                 </div>
                                 <div className="w-full sm:w-1/2">
                                     <span className="block text-[10px] font-mono text-[#A0A4A8] uppercase tracking-wider mb-1.5 font-semibold">
-                                        Popular Quick Selects
+                                        Multi-Asset Quick Selects (Crypto, Stocks, Commodities)
                                     </span>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {['BTC-USD', 'ETH-USD', 'SOL-USD', 'AAPL', 'NVDA', 'TSLA'].map(tick => (
+                                        {['BTC-USD', 'ETH-USD', 'AAPL', 'NVDA', 'CL=F', 'GC=F'].map(tick => (
                                             <button 
                                                 key={tick}
                                                 onClick={() => handleQuickSelect(tick)}
                                                 className={`asset-badge ${ticker.toUpperCase().trim() === tick ? 'border-[#3DD9F7] text-white bg-opacity-10 bg-[#3DD9F7]' : ''}`}
+                                                title={tick === 'CL=F' ? 'Crude Oil Futures' : tick === 'GC=F' ? 'Gold Futures' : tick}
                                             >
-                                                {tick}
+                                                {tick === 'CL=F' ? 'CL=F (OIL)' : tick === 'GC=F' ? 'GC=F (GOLD)' : tick}
                                             </button>
                                         ))}
                                     </div>

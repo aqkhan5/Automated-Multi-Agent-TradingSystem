@@ -1,14 +1,15 @@
 from agents import Agent
-from app.agents.client import get_gemini_model
+from app.agents.client import get_gemini_model, get_agent_model_settings
 from app.agents.prompts.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
 from app.agents.nodes.analyst import create_analyst_agent
 from app.agents.nodes.risk import create_risk_agent
 from app.agents.tools.agent_tools import get_analyst_tool, get_risk_tool
+from app.agents.tools.market_data import compute_trade_risk_and_bounds
 
 def create_manager_agent(model=None, analyst_agent=None, risk_agent=None) -> Agent:
     """
     Instantiates the Master Trading Desk Manager (Orchestrator).
-    Role: Strategy Orchestrator & State Initiator.
+    Role: Strategy Orchestrator & Multi-Asset State Initiator (Equities, Crypto, Commodities).
     Boundaries: Delegates data analysis to Analyst Tool and compliance to Risk Tool.
     """
     llm = model or get_gemini_model()
@@ -21,6 +22,7 @@ def create_manager_agent(model=None, analyst_agent=None, risk_agent=None) -> Age
     return Agent(
         name="Trading Desk Manager",
         instructions=ORCHESTRATOR_SYSTEM_PROMPT,
-        tools=[analyst_tool, risk_tool],
-        model=llm
+        tools=[analyst_tool, risk_tool, compute_trade_risk_and_bounds],
+        model=llm,
+        model_settings=get_agent_model_settings()
     )

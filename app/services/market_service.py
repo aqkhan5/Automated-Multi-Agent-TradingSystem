@@ -2,13 +2,15 @@ import asyncio
 import yfinance as yf
 from fastapi import HTTPException
 from app.schemas.market import PriceChartResponse, Candle
+from app.agents.tools.risk_engine import normalize_ticker
 
 async def get_price_chart_data(ticker: str, period: str = "7d", interval: str = "15m") -> PriceChartResponse:
     """
     Fetches historical candle data and calculates current price, open, high, low,
     volume, and percentage variance for frontend charting.
+    Supports Equities, Cryptocurrencies, and Commodities/Energy (OIL, GOLD, CL=F, GC=F).
     """
-    clean_ticker = ticker.upper().strip()
+    clean_ticker = normalize_ticker(ticker)
     try:
         stock = yf.Ticker(clean_ticker)
         loop = asyncio.get_event_loop()

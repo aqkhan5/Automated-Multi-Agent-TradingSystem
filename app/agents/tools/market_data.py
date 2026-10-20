@@ -1,20 +1,28 @@
+import json
 import yfinance as yf
 import pandas as pd
 from agents import function_tool
+from app.agents.tools.risk_engine import (
+    normalize_ticker,
+    detect_asset_class,
+    calculate_deterministic_trade_bounds,
+    evaluate_dynamic_risk
+)
 
 @function_tool
 def fetch_market_data(ticker: str, period: str, interval: str) -> str:
     """
-    Fetches the pricing history for a given ticker asset symbol with a specified lookback period and interval.
-    Calculates key technical indicators (EMA, SMA, RSI, MACD, ATR, Support/Demand Zones) to optimize
-    context usage and token footprint.
+    Fetches the pricing history and calculates indicators for a given ticker asset symbol.
+    Supports Equities, Cryptocurrencies, and Commodities/Energy futures (e.g. 'CL=F', 'GC=F', 'OIL', 'GOLD').
     
     Parameters:
-    - ticker: Ticker symbol (e.g. 'AAPL', 'BTC-USD')
+    - ticker: Ticker symbol (e.g. 'AAPL', 'BTC-USD', 'CL=F', 'GC=F', 'OIL')
     - period: Lookback period (e.g. '7d', '30d', '60d', '180d')
     - interval: Data interval (e.g. '15m', '1h', '4h', '1d')
     """
-    clean_ticker = ticker.upper().strip()
+    clean_ticker = normalize_ticker(ticker)
+    asset_class = detect_asset_class(clean_ticker)
+
     try:
         stock = yf.Ticker(clean_ticker)
         df = stock.history(period=period, interval=interval)
@@ -93,17 +101,16 @@ def fetch_market_data(ticker: str, period: str, interval: str) -> str:
         nearest_supply = min(supply_above) if supply_above else None
         nearest_demand = max(demand_below) if demand_below else None
         
-        # Format a token-conserved return representation
         latest = df.iloc[-1]
         summary = []
-        summary.append(f"=== Live Quantitative Report for {clean_ticker} ===")
+        summary.append(f"=== Live Quantitative Report for {clean_ticker} ({asset_class}) ===")
         summary.append(f"Lookback Period: {period} | Interval: {interval}")
         summary.append(f"Latest Close Price: ${latest['Close']:.2f}")
         summary.append(f"Latest Open: ${latest['Open']:.2f} | High: ${latest['High']:.2f} | Low: ${latest['Low']:.2f} | Volume: {int(latest['Volume'])}")
         
         summary.append("\n--- Latest Technical Indicator Values ---")
         summary.append(f"RSI (14): {latest['RSI_14']}")
-        summary.append(f"EMA(9): {latest['EMA_9']} | EMA(21): {latest['EMA_21']} | Crossover Signal: {'Bullish (9-EMA > 21-EMA)' if latest['EMA_9'] > latest['EMA_21'] else 'Bearish (9-EMA < 21-EMA)'}")
+        summary.append(f"EMA(9): {latest['EMA_9']} | EMA(21): {latest['EMA_21']} | Crossover: {'Bullish (9-EMA > 21-EMA)' if latest['EMA_9'] > latest['EMA_21'] else 'Bearish (9-EMA < 21-EMA)'}")
         
         if len(df) >= 50:
             summary.append(f"SMA(50): {latest['SMA_50']}")
@@ -126,3 +133,43 @@ def fetch_market_data(ticker: str, period: str, interval: str) -> str:
         return "\n".join(summary)
     except Exception as e:
         return f"Data extraction failed: {str(e)}"
+
+@function_tool
+def compute_trade_risk_and_bounds(
+    ticker: str,
+    interval: str,
+    signal_action: str,
+    current_price: float,
+    nearest_supply: float,
+    nearest_demand: float,
+    atr_14: float,
+    account_balance: float = 10000.0
+) -> str:
+    """
+    Computes exact, deterministic Take-Profit, Stop-Loss, Risk-to-Reward (R:R),
+    and dynamic budget allocation based on the user's Dynamic Risk Matrix.
+    Eliminates all LLM arithmetic hallucinations.
+    """
+    tp, sl = calculate_deterministic_trade_bounds(
+        current_price=current_price,
+        signal_action=signal_action,
+        nearest_supply=nearest_supply if nearest_supply > 0 else None,
+        nearest_demand=nearest_demand if nearest_demand > 0 else None,
+        atr=atr_14
+    )
+
+    result = evaluate_dynamic_risk(
+        account_balance=account_balance,
+        interval=interval,
+        signal_action=signal_action,
+        entry_price=current_price,
+        take_profit=tp,
+        stop_loss=sl
+    )
+
+    result["ticker"] = normalize_ticker(ticker)
+    result["ENTRY_PRICE"] = current_price
+    result["TAKE_PROFIT"] = tp
+    result["STOP_LOSS"] = sl
+
+    return json.dumps(result, indent=2)

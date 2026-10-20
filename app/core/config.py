@@ -20,8 +20,12 @@ class Settings:
     # LLM Settings
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    GEMINI_MODEL: str = "models/gemini-2.5-flash"
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "models/gemini-3.8-flash")
+    GEMINI_TEMPERATURE: float = float(os.getenv("GEMINI_TEMPERATURE", "0.0"))
     GEMINI_MAX_RETRIES: int = 5
+    
+    # Portfolio Capital & Dynamic Risk Settings (Ready for live Binance API connection)
+    DEFAULT_ACCOUNT_CAPITAL: float = float(os.getenv("DEFAULT_ACCOUNT_CAPITAL", "10000.0"))
     
     # Database Settings
     NEON_DB_URL: str = os.getenv(

@@ -159,6 +159,97 @@ function calculateEMA(candles, period) {
     return result;
 }
 
+function calculateRSI(candles, period = 14) {
+    if (!candles || candles.length <= period) return [];
+    const result = [];
+    let gains = 0;
+    let losses = 0;
+
+    for (let i = 1; i <= period; i++) {
+        const change = candles[i].close - candles[i - 1].close;
+        if (change >= 0) gains += change;
+        else losses += -change;
+    }
+
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
+
+    let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    let rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + rs));
+    result.push({ time: candles[period].time, value: Number(rsi.toFixed(2)) });
+
+    for (let i = period + 1; i < candles.length; i++) {
+        const change = candles[i].close - candles[i - 1].close;
+        const gain = change >= 0 ? change : 0;
+        const loss = change < 0 ? -change : 0;
+
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+        rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + rs));
+        result.push({ time: candles[i].time, value: Number(rsi.toFixed(2)) });
+    }
+    return result;
+}
+
+function calculateBollingerBands(candles, period = 20, multiplier = 2) {
+    if (!candles || candles.length < period) return { upper: [], middle: [], lower: [] };
+    const upper = [];
+    const middle = [];
+    const lower = [];
+
+    for (let i = period - 1; i < candles.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) {
+            sum += candles[i - j].close;
+        }
+        const sma = sum / period;
+
+        let variance = 0;
+        for (let j = 0; j < period; j++) {
+            variance += Math.pow(candles[i - j].close - sma, 2);
+        }
+        const stdDev = Math.sqrt(variance / period);
+
+        const time = candles[i].time;
+        const upVal = Number((sma + (multiplier * stdDev)).toFixed(2));
+        const midVal = Number(sma.toFixed(2));
+        const lowVal = Number((sma - (multiplier * stdDev)).toFixed(2));
+
+        upper.push({ time, value: upVal });
+        middle.push({ time, value: midVal });
+        lower.push({ time, value: lowVal });
+    }
+    return { upper, middle, lower };
+}
+
+function calculateATR(candles, period = 14) {
+    if (!candles || candles.length <= period) return [];
+    const trs = [candles[0].high - candles[0].low];
+
+    for (let i = 1; i < candles.length; i++) {
+        const h = candles[i].high;
+        const l = candles[i].low;
+        const prevC = candles[i - 1].close;
+        trs.push(Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC)));
+    }
+
+    let sumTR = 0;
+    for (let i = 0; i < period; i++) {
+        sumTR += trs[i];
+    }
+    let prevATR = sumTR / period;
+    const result = [{ time: candles[period - 1].time, value: Number(prevATR.toFixed(2)) }];
+
+    for (let i = period; i < candles.length; i++) {
+        const currentATR = (prevATR * (period - 1) + trs[i]) / period;
+        result.push({ time: candles[i].time, value: Number(currentATR.toFixed(2)) });
+        prevATR = currentATR;
+    }
+    return result;
+}
+
 function formatChartTime(timeStr) {
     if (typeof timeStr === 'number') return timeStr;
     if (/^\d{4}-\d{2}-\d{2}$/.test(timeStr)) return timeStr;
@@ -190,7 +281,9 @@ function TradingViewWidgetEmbed({ symbol, isDark, interval = "15" }) {
                 hide_side_toolbar: false, // FULL LEFT DRAWING/EDITING TOOLBAR!
                 studies: [
                     "MASimple@tv-basicstudies",
-                    "RSI@tv-basicstudies"
+                    "RSI@tv-basicstudies",
+                    "BB@tv-basicstudies",
+                    "ATR@tv-basicstudies"
                 ],
                 container_id: containerId
             });
@@ -204,17 +297,112 @@ function TradingViewWidgetEmbed({ symbol, isDark, interval = "15" }) {
 
 function CandlestickChart({ candles, decision, ticker, strategyName, isDark = true }) {
     const [chartMode, setChartMode] = useState("terminal"); // "terminal" | "tradingview"
+    
+    // Technical Indicators State (TradingView suite)
+    const [showBB, setShowBB] = useState(true);
+    const [showRSI, setShowRSI] = useState(false);
+    const [showATR, setShowATR] = useState(false);
     const [showEMA9, setShowEMA9] = useState(true);
-    const [showEMA21, setShowEMA21] = useState(true);
+    const [showEMA21, setShowEMA21] = useState(false);
     const [showMA50, setShowMA50] = useState(false);
     const [showVolume, setShowVolume] = useState(true);
-    const [showTargets, setShowTargets] = useState(true);
+
+    // TradingView-Style Indicators Modal State
+    const [showIndicatorsModal, setShowIndicatorsModal] = useState(false);
+    const [indicatorSearch, setIndicatorSearch] = useState("");
+    const [selectedCategory, setSelectedCategory] = useState("all");
+
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [legendData, setLegendData] = useState(null);
 
     const chartContainerRef = useRef(null);
     const chartWrapRef = useRef(null);
     const chartInstanceRef = useRef(null);
+
+    // Clean Technical Indicators Catalog
+    const INDICATORS_CATALOG = [
+        {
+            id: "bb",
+            name: "Bollinger Bands",
+            code: "BB 20, 2",
+            category: "volatility",
+            categoryLabel: "Volatility",
+            state: showBB,
+            toggle: () => setShowBB(prev => !prev),
+            color: "#38BDF8"
+        },
+        {
+            id: "rsi",
+            name: "Relative Strength Index",
+            code: "RSI 14",
+            category: "momentum",
+            categoryLabel: "Oscillator",
+            state: showRSI,
+            toggle: () => setShowRSI(prev => !prev),
+            color: "#A855F7"
+        },
+        {
+            id: "atr",
+            name: "Average True Range",
+            code: "ATR 14",
+            category: "volatility",
+            categoryLabel: "Volatility",
+            state: showATR,
+            toggle: () => setShowATR(prev => !prev),
+            color: "#EC4899"
+        },
+        {
+            id: "ema9",
+            name: "Exponential Moving Average 9",
+            code: "EMA 9",
+            category: "moving_averages",
+            categoryLabel: "Moving Avg",
+            state: showEMA9,
+            toggle: () => setShowEMA9(prev => !prev),
+            color: "#00F0FF"
+        },
+        {
+            id: "ema21",
+            name: "Exponential Moving Average 21",
+            code: "EMA 21",
+            category: "moving_averages",
+            categoryLabel: "Moving Avg",
+            state: showEMA21,
+            toggle: () => setShowEMA21(prev => !prev),
+            color: "#D946EF"
+        },
+        {
+            id: "ma50",
+            name: "Simple Moving Average 50",
+            code: "MA 50",
+            category: "moving_averages",
+            categoryLabel: "Moving Avg",
+            state: showMA50,
+            toggle: () => setShowMA50(prev => !prev),
+            color: "#F59E0B"
+        },
+        {
+            id: "vol",
+            name: "Volume Histogram",
+            code: "VOL",
+            category: "volume",
+            categoryLabel: "Volume",
+            state: showVolume,
+            toggle: () => setShowVolume(prev => !prev),
+            color: "#0ECB81"
+        }
+    ];
+
+    const activeCount = INDICATORS_CATALOG.filter(item => item.state).length;
+
+    const filteredIndicators = INDICATORS_CATALOG.filter(item => {
+        const matchesCategory = selectedCategory === "all" || item.category === selectedCategory;
+        const query = indicatorSearch.trim().toLowerCase();
+        const matchesSearch = !query || 
+            item.name.toLowerCase().includes(query) || 
+            item.code.toLowerCase().includes(query);
+        return matchesCategory && matchesSearch;
+    });
 
     const toggleFullscreen = () => {
         if (!chartWrapRef.current) return;
@@ -255,6 +443,8 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
         const width = container.clientWidth || 600;
         const height = isFullscreen ? window.innerHeight - 80 : 380;
 
+        const hasOscillators = showRSI || showATR;
+
         const chart = window.LightweightCharts.createChart(container, {
             width: width,
             height: height,
@@ -293,8 +483,8 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
             rightPriceScale: {
                 borderColor: isDark ? '#2B313A' : '#EAECEF',
                 scaleMargins: {
-                    top: 0.1,
-                    bottom: 0.25,
+                    top: 0.08,
+                    bottom: hasOscillators ? 0.32 : showVolume ? 0.22 : 0.08,
                 },
             },
             timeScale: {
@@ -342,7 +532,7 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
                         volumeData.push({
                             time: t,
                             value: parseFloat(c.volume) || 0,
-                            color: cl >= o ? 'rgba(14, 203, 129, 0.35)' : 'rgba(246, 70, 93, 0.35)'
+                            color: cl >= o ? 'rgba(14, 203, 129, 0.4)' : 'rgba(246, 70, 93, 0.4)'
                         });
                     }
                 }
@@ -358,26 +548,52 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
             });
             candlestickSeries.setData(cleanCandles);
 
-            // 2. Volume Series
-            if (showVolume && volumeData.length > 0) {
-                const volumeSeries = chart.addHistogramSeries({
-                    priceFormat: { type: 'volume' },
-                    priceScaleId: 'volume_pane',
-                });
-                chart.priceScale('volume_pane').applyOptions({
-                    scaleMargins: {
-                        top: 0.8,
-                        bottom: 0,
-                    },
-                });
-                volumeSeries.setData(volumeData);
+            // 2. Bollinger Bands (BB 20, 2)
+            let bbUpperSeries = null, bbMiddleSeries = null, bbLowerSeries = null;
+            let lastBBU = null, lastBBM = null, lastBBL = null;
+            if (showBB) {
+                const bb = calculateBollingerBands(cleanCandles, 20, 2);
+                if (bb.upper.length > 0) {
+                    bbUpperSeries = chart.addLineSeries({
+                        color: 'rgba(56, 189, 248, 0.85)',
+                        lineWidth: 1.5,
+                        title: 'BB Upper',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    bbUpperSeries.setData(bb.upper);
+                    lastBBU = bb.upper[bb.upper.length - 1]?.value;
+
+                    bbMiddleSeries = chart.addLineSeries({
+                        color: 'rgba(245, 158, 11, 0.9)',
+                        lineWidth: 1,
+                        lineStyle: 2,
+                        title: 'BB Basis',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    bbMiddleSeries.setData(bb.middle);
+                    lastBBM = bb.middle[bb.middle.length - 1]?.value;
+
+                    bbLowerSeries = chart.addLineSeries({
+                        color: 'rgba(56, 189, 248, 0.85)',
+                        lineWidth: 1.5,
+                        title: 'BB Lower',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    bbLowerSeries.setData(bb.lower);
+                    lastBBL = bb.lower[bb.lower.length - 1]?.value;
+                }
             }
 
             // 3. EMA 9
+            let ema9Series = null;
+            let lastEMA9 = null;
             if (showEMA9) {
                 const ema9 = calculateEMA(cleanCandles, 9);
                 if (ema9.length > 0) {
-                    const ema9Series = chart.addLineSeries({
+                    ema9Series = chart.addLineSeries({
                         color: '#00F0FF',
                         lineWidth: 1.5,
                         title: 'EMA 9',
@@ -385,14 +601,17 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
                         crosshairMarkerVisible: false,
                     });
                     ema9Series.setData(ema9);
+                    lastEMA9 = ema9[ema9.length - 1]?.value;
                 }
             }
 
             // 4. EMA 21
+            let ema21Series = null;
+            let lastEMA21 = null;
             if (showEMA21) {
                 const ema21 = calculateEMA(cleanCandles, 21);
                 if (ema21.length > 0) {
-                    const ema21Series = chart.addLineSeries({
+                    ema21Series = chart.addLineSeries({
                         color: '#D946EF',
                         lineWidth: 1.5,
                         title: 'EMA 21',
@@ -400,14 +619,17 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
                         crosshairMarkerVisible: false,
                     });
                     ema21Series.setData(ema21);
+                    lastEMA21 = ema21[ema21.length - 1]?.value;
                 }
             }
 
             // 5. MA 50
+            let ma50Series = null;
+            let lastMA50 = null;
             if (showMA50) {
                 const ma50 = calculateSMA(cleanCandles, 50);
                 if (ma50.length > 0) {
-                    const ma50Series = chart.addLineSeries({
+                    ma50Series = chart.addLineSeries({
                         color: '#F59E0B',
                         lineWidth: 1.5,
                         title: 'MA 50',
@@ -415,47 +637,107 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
                         crosshairMarkerVisible: false,
                     });
                     ma50Series.setData(ma50);
+                    lastMA50 = ma50[ma50.length - 1]?.value;
                 }
             }
 
-            // 6. Multi-Agent TP/SL Targets
-            if (showTargets && decision && decision.ticker === ticker) {
-                const lineStyleDashed = window.LightweightCharts?.LineStyle?.Dashed || 2;
-                const lineStyleDotted = window.LightweightCharts?.LineStyle?.Dotted || 1;
+            // 6. Volume Histogram
+            let volumeSeries = null;
+            if (showVolume && volumeData.length > 0) {
+                volumeSeries = chart.addHistogramSeries({
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: 'volume_pane',
+                });
+                chart.priceScale('volume_pane').applyOptions({
+                    scaleMargins: {
+                        top: hasOscillators ? 0.65 : 0.82,
+                        bottom: hasOscillators ? 0.28 : 0,
+                    },
+                });
+                volumeSeries.setData(volumeData);
+            }
 
-                if (decision.TAKE_PROFIT > 0) {
-                    candlestickSeries.createPriceLine({
-                        price: parseFloat(decision.TAKE_PROFIT),
-                        color: '#0ECB81',
+            // 7. Relative Strength Index (RSI 14)
+            let rsiSeries = null;
+            let lastRSI = null;
+            if (showRSI) {
+                const rsiData = calculateRSI(cleanCandles, 14);
+                if (rsiData.length > 0) {
+                    rsiSeries = chart.addLineSeries({
+                        priceScaleId: 'rsi_pane',
+                        color: '#A855F7',
                         lineWidth: 2,
+                        title: 'RSI 14',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: true,
+                        priceFormat: {
+                            type: 'custom',
+                            formatter: (val) => val.toFixed(1),
+                        },
+                    });
+                    chart.priceScale('rsi_pane').applyOptions({
+                        scaleMargins: {
+                            top: 0.74,
+                            bottom: 0.02,
+                        },
+                    });
+                    rsiSeries.setData(rsiData);
+                    lastRSI = rsiData[rsiData.length - 1]?.value;
+
+                    const lineStyleDashed = window.LightweightCharts?.LineStyle?.Dashed || 2;
+                    const lineStyleDotted = window.LightweightCharts?.LineStyle?.Dotted || 1;
+                    rsiSeries.createPriceLine({
+                        price: 70,
+                        color: 'rgba(244, 63, 94, 0.75)',
+                        lineWidth: 1,
                         lineStyle: lineStyleDashed,
                         axisLabelVisible: true,
-                        title: `TP: $${parseFloat(decision.TAKE_PROFIT).toFixed(2)}`,
+                        title: '70',
                     });
-                }
-                if (decision.ENTRY_PRICE > 0) {
-                    candlestickSeries.createPriceLine({
-                        price: parseFloat(decision.ENTRY_PRICE),
-                        color: '#FCD535',
-                        lineWidth: 2,
+                    rsiSeries.createPriceLine({
+                        price: 50,
+                        color: 'rgba(148, 163, 184, 0.45)',
+                        lineWidth: 1,
                         lineStyle: lineStyleDotted,
-                        axisLabelVisible: true,
-                        title: `ENTRY: $${parseFloat(decision.ENTRY_PRICE).toFixed(2)}`,
+                        axisLabelVisible: false,
                     });
-                }
-                if (decision.STOP_LOSS > 0) {
-                    candlestickSeries.createPriceLine({
-                        price: parseFloat(decision.STOP_LOSS),
-                        color: '#F6465D',
-                        lineWidth: 2,
+                    rsiSeries.createPriceLine({
+                        price: 30,
+                        color: 'rgba(16, 185, 129, 0.75)',
+                        lineWidth: 1,
                         lineStyle: lineStyleDashed,
                         axisLabelVisible: true,
-                        title: `SL: $${parseFloat(decision.STOP_LOSS).toFixed(2)}`,
+                        title: '30',
                     });
                 }
             }
 
-            // Legend initial data
+            // 8. Average True Range (ATR 14)
+            let atrSeries = null;
+            let lastATR = null;
+            if (showATR) {
+                const atrData = calculateATR(cleanCandles, 14);
+                if (atrData.length > 0) {
+                    atrSeries = chart.addLineSeries({
+                        priceScaleId: 'atr_pane',
+                        color: '#EC4899',
+                        lineWidth: 1.8,
+                        title: 'ATR 14',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: true,
+                    });
+                    chart.priceScale('atr_pane').applyOptions({
+                        scaleMargins: {
+                            top: 0.74,
+                            bottom: 0.02,
+                        },
+                    });
+                    atrSeries.setData(atrData);
+                    lastATR = atrData[atrData.length - 1]?.value;
+                }
+            }
+
+            // Initial Legend State
             const lastCandle = cleanCandles[cleanCandles.length - 1];
             if (lastCandle) {
                 const chg = lastCandle.close - lastCandle.open;
@@ -467,24 +749,50 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
                     close: lastCandle.close,
                     change: chg,
                     changePct: chgPct,
+                    bbUpper: lastBBU,
+                    bbMiddle: lastBBM,
+                    bbLower: lastBBL,
+                    rsi: lastRSI,
+                    atr: lastATR,
+                    ema9: lastEMA9,
+                    ema21: lastEMA21,
+                    ma50: lastMA50,
                     time: lastCandle.time
                 });
             }
 
-            // Crosshair move subscription
+            // Interactive Crosshair Move Subscription
             chart.subscribeCrosshairMove(param => {
                 if (!param || !param.time || !param.seriesData) return;
-                const data = param.seriesData.get(candlestickSeries);
-                if (data) {
-                    const chg = data.close - data.open;
-                    const chgPct = (chg / data.open) * 100;
+                const cData = param.seriesData.get(candlestickSeries);
+                if (cData) {
+                    const chg = cData.close - cData.open;
+                    const chgPct = (chg / cData.open) * 100;
+
+                    const bbU = bbUpperSeries ? param.seriesData.get(bbUpperSeries)?.value : lastBBU;
+                    const bbM = bbMiddleSeries ? param.seriesData.get(bbMiddleSeries)?.value : lastBBM;
+                    const bbL = bbLowerSeries ? param.seriesData.get(bbLowerSeries)?.value : lastBBL;
+                    const rsiVal = rsiSeries ? param.seriesData.get(rsiSeries)?.value : lastRSI;
+                    const atrVal = atrSeries ? param.seriesData.get(atrSeries)?.value : lastATR;
+                    const ema9Val = ema9Series ? param.seriesData.get(ema9Series)?.value : lastEMA9;
+                    const ema21Val = ema21Series ? param.seriesData.get(ema21Series)?.value : lastEMA21;
+                    const ma50Val = ma50Series ? param.seriesData.get(ma50Series)?.value : lastMA50;
+
                     setLegendData({
-                        open: data.open,
-                        high: data.high,
-                        low: data.low,
-                        close: data.close,
+                        open: cData.open,
+                        high: cData.high,
+                        low: cData.low,
+                        close: cData.close,
                         change: chg,
                         changePct: chgPct,
+                        bbUpper: bbU,
+                        bbMiddle: bbM,
+                        bbLower: bbL,
+                        rsi: rsiVal,
+                        atr: atrVal,
+                        ema9: ema9Val,
+                        ema21: ema21Val,
+                        ma50: ma50Val,
                         time: param.time
                     });
                 }
@@ -510,125 +818,147 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
                 chartInstanceRef.current = null;
             }
         };
-    }, [candles, decision, ticker, isDark, chartMode, showEMA9, showEMA21, showMA50, showVolume, showTargets, isFullscreen]);
+    }, [candles, decision, ticker, isDark, chartMode, showBB, showRSI, showATR, showEMA9, showEMA21, showMA50, showVolume, isFullscreen]);
 
     return (
         <div ref={chartWrapRef} className={`relative w-full bn-panel p-4 flex flex-col justify-between ${isFullscreen ? 'bg-[var(--bn-card)] p-6' : ''}`}>
             {/* Top Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2.5 pb-2.5 border-b border-[var(--bn-border)]">
-                {/* Mode Selector (Binance style) */}
-                <div className="flex items-center gap-1.5">
+            {/* Top Toolbar */}
+            <div className="flex items-center justify-between gap-3 mb-2.5 pb-2.5 border-b border-[var(--bn-border)]">
+                {/* Left: Mode Selector */}
+                <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
                         onClick={() => setChartMode("terminal")}
-                        className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                             chartMode === "terminal"
                                 ? "bg-[#FCD535] text-black shadow-sm"
                                 : "bg-[var(--bn-surface)] text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]"
                         }`}
-                        title="Interactive Lightweight Chart with live multi-agent target bounds"
+                        title="Interactive Terminal Chart"
                     >
                         <span>⚡ Terminal Pro</span>
                     </button>
 
                     <button
                         onClick={() => setChartMode("tradingview")}
-                        className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                             chartMode === "tradingview"
                                 ? "bg-[#3861FB] text-white shadow-sm"
                                 : "bg-[var(--bn-surface)] text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]"
                         }`}
-                        title="TradingView Advanced Engine with all drawing tools and technical indicators"
+                        title="TradingView Advanced Engine with full drawing toolbar"
                     >
                         <span>📈 TradingView Advanced</span>
                     </button>
                 </div>
 
-                {/* Controls & Indicators */}
-                <div className="flex flex-wrap items-center gap-2">
+                {/* Right: Indicators (3rd), Auto Fit (2nd), Fullscreen (1st / rightmost) */}
+                <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
                     {chartMode === "terminal" && (
                         <>
-                            {/* Indicator Toggles */}
-                            <div className="flex items-center gap-1 text-[11px] font-mono">
-                                <button
-                                    onClick={() => setShowEMA9(!showEMA9)}
-                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
-                                        showEMA9 ? "border-[#00F0FF] text-[#00F0FF] bg-[#00F0FF]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
-                                    }`}
-                                    title="Toggle 9-Period Exponential Moving Average"
-                                >
-                                    EMA9
-                                </button>
-                                <button
-                                    onClick={() => setShowEMA21(!showEMA21)}
-                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
-                                        showEMA21 ? "border-[#D946EF] text-[#D946EF] bg-[#D946EF]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
-                                    }`}
-                                    title="Toggle 21-Period Exponential Moving Average"
-                                >
-                                    EMA21
-                                </button>
-                                <button
-                                    onClick={() => setShowMA50(!showMA50)}
-                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
-                                        showMA50 ? "border-[#F59E0B] text-[#F59E0B] bg-[#F59E0B]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
-                                    }`}
-                                    title="Toggle 50-Period Moving Average"
-                                >
-                                    MA50
-                                </button>
-                                <button
-                                    onClick={() => setShowVolume(!showVolume)}
-                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
-                                        showVolume ? "border-[#0ECB81] text-[#0ECB81] bg-[#0ECB81]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
-                                    }`}
-                                    title="Toggle Volume Histogram"
-                                >
-                                    VOL
-                                </button>
-                                <button
-                                    onClick={() => setShowTargets(!showTargets)}
-                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
-                                        showTargets ? "border-[#FCD535] text-[#FCD535] bg-[#FCD535]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
-                                    }`}
-                                    title="Toggle Multi-Agent TP/SL Price Lines"
-                                >
-                                    TARGETS
-                                </button>
-                            </div>
+                            {/* Indicators Option (Third from right) */}
+                            <button
+                                onClick={() => setShowIndicatorsModal(true)}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    showIndicatorsModal
+                                        ? "bg-[#FCD535] text-black font-bold shadow-sm"
+                                        : "bg-[var(--bn-surface)] hover:bg-[var(--bn-surface-hover)] border border-[var(--bn-border)] text-[var(--bn-text)]"
+                                }`}
+                                title="Open Technical Indicators (RSI, Bollinger Bands, ATR, EMAs)"
+                            >
+                                <span className="text-[#FCD535] font-serif font-black italic text-sm leading-none">ƒx</span>
+                                <span>Indicators</span>
+                                {activeCount > 0 && (
+                                    <span className="px-1.5 py-0.2 bg-[#FCD535]/20 text-[#FCD535] rounded-full text-[10px] font-mono font-bold">
+                                        {activeCount}
+                                    </span>
+                                )}
+                            </button>
 
-                            {/* Auto Fit Reset */}
+                            {/* Auto Fit (Second from right) */}
                             <button
                                 onClick={handleAutoFit}
-                                className="px-2 py-0.5 text-[11px] rounded bg-[var(--bn-surface)] hover:bg-[var(--bn-surface-hover)] border border-[var(--bn-border)] text-[var(--bn-text)] transition-colors cursor-pointer flex items-center gap-1"
+                                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[var(--bn-surface)] hover:bg-[var(--bn-surface-hover)] border border-[var(--bn-border)] text-[var(--bn-text)] transition-colors cursor-pointer flex items-center gap-1.5"
                                 title="Auto Fit & Reset Zoom"
                             >
-                                ⟲ Auto Fit
+                                <span className="text-sm leading-none">⟲</span>
+                                <span>Auto Fit</span>
                             </button>
                         </>
                     )}
 
-                    {/* Fullscreen Option */}
+                    {/* Fullscreen (Rightmost) */}
                     <button
                         onClick={toggleFullscreen}
-                        className="px-2.5 py-0.5 text-[11px] font-semibold rounded bg-[var(--bn-surface)] hover:bg-[var(--bn-surface-hover)] border border-[var(--bn-border)] text-[var(--bn-text)] transition-colors cursor-pointer flex items-center gap-1"
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[var(--bn-surface)] hover:bg-[var(--bn-surface-hover)] border border-[var(--bn-border)] text-[var(--bn-text)] transition-colors cursor-pointer flex items-center gap-1.5"
                         title="Toggle Fullscreen"
                     >
-                        <span>⛶</span> {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                        <span className="text-sm leading-none">⛶</span>
+                        <span>{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
                     </button>
                 </div>
             </div>
 
-            {/* Live OHLCV Legend Bar (Terminal mode) */}
+            {/* Live OHLCV & Indicators Legend Bar (Terminal mode) */}
             {chartMode === "terminal" && legendData && (
-                <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-mono text-[var(--bn-text-secondary)] px-1 mb-2">
-                    <span className="font-bold text-[var(--bn-text)]">{ticker}</span>
-                    <span>O: <strong className="text-[var(--bn-text)]">${legendData.open?.toFixed(2)}</strong></span>
-                    <span>H: <strong className="text-[var(--bn-text)]">${legendData.high?.toFixed(2)}</strong></span>
-                    <span>L: <strong className="text-[var(--bn-text)]">${legendData.low?.toFixed(2)}</strong></span>
-                    <span>C: <strong className={legendData.change >= 0 ? "text-[#0ECB81]" : "text-[#F6465D]"}>${legendData.close?.toFixed(2)}</strong></span>
-                    <span>Chg: <strong className={legendData.change >= 0 ? "text-[#0ECB81]" : "text-[#F6465D]"}>
-                        {legendData.change >= 0 ? `+${legendData.changePct?.toFixed(2)}%` : `${legendData.changePct?.toFixed(2)}%`}
-                    </strong></span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono text-[var(--bn-text-secondary)] px-1 mb-2">
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-[var(--bn-text)]">{ticker}</span>
+                        <span>O: <strong className="text-[var(--bn-text)]">${legendData.open?.toFixed(2)}</strong></span>
+                        <span>H: <strong className="text-[var(--bn-text)]">${legendData.high?.toFixed(2)}</strong></span>
+                        <span>L: <strong className="text-[var(--bn-text)]">${legendData.low?.toFixed(2)}</strong></span>
+                        <span>C: <strong className={legendData.change >= 0 ? "text-[#0ECB81]" : "text-[#F6465D]"}>${legendData.close?.toFixed(2)}</strong></span>
+                        <span>Chg: <strong className={legendData.change >= 0 ? "text-[#0ECB81]" : "text-[#F6465D]"}>
+                            {legendData.change >= 0 ? `+${legendData.changePct?.toFixed(2)}%` : `${legendData.changePct?.toFixed(2)}%`}
+                        </strong></span>
+                    </div>
+
+                    {/* Dynamic Indicator Values in Legend */}
+                    {showBB && legendData.bbUpper !== undefined && legendData.bbUpper !== null && (
+                        <div className="flex items-center gap-1.5 text-[10px]">
+                            <span className="text-[#38BDF8] font-semibold">BB(20,2):</span>
+                            <span>Upper <strong className="text-[#38BDF8]">${legendData.bbUpper?.toFixed(2)}</strong></span>
+                            <span>Mid <strong className="text-[#F59E0B]">${legendData.bbMiddle?.toFixed(2)}</strong></span>
+                            <span>Lower <strong className="text-[#38BDF8]">${legendData.bbLower?.toFixed(2)}</strong></span>
+                        </div>
+                    )}
+
+                    {showRSI && legendData.rsi !== undefined && legendData.rsi !== null && (
+                        <div className="flex items-center gap-1 text-[10px]">
+                            <span className="text-[#A855F7] font-semibold">RSI(14):</span>
+                            <strong className={legendData.rsi >= 70 ? "text-[#F43F5E]" : legendData.rsi <= 30 ? "text-[#0ECB81]" : "text-[#A855F7]"}>
+                                {legendData.rsi?.toFixed(1)}
+                            </strong>
+                        </div>
+                    )}
+
+                    {showATR && legendData.atr !== undefined && legendData.atr !== null && (
+                        <div className="flex items-center gap-1 text-[10px]">
+                            <span className="text-[#EC4899] font-semibold">ATR(14):</span>
+                            <strong className="text-[#EC4899]">${legendData.atr?.toFixed(2)}</strong>
+                        </div>
+                    )}
+
+                    {showEMA9 && legendData.ema9 !== undefined && legendData.ema9 !== null && (
+                        <div className="flex items-center gap-1 text-[10px]">
+                            <span className="text-[#00F0FF] font-semibold">EMA9:</span>
+                            <strong className="text-[#00F0FF]">${legendData.ema9?.toFixed(2)}</strong>
+                        </div>
+                    )}
+
+                    {showEMA21 && legendData.ema21 !== undefined && legendData.ema21 !== null && (
+                        <div className="flex items-center gap-1 text-[10px]">
+                            <span className="text-[#D946EF] font-semibold">EMA21:</span>
+                            <strong className="text-[#D946EF]">${legendData.ema21?.toFixed(2)}</strong>
+                        </div>
+                    )}
+
+                    {showMA50 && legendData.ma50 !== undefined && legendData.ma50 !== null && (
+                        <div className="flex items-center gap-1 text-[10px]">
+                            <span className="text-[#F59E0B] font-semibold">MA50:</span>
+                            <strong className="text-[#F59E0B]">${legendData.ma50?.toFixed(2)}</strong>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -663,6 +993,165 @@ function CandlestickChart({ candles, decision, ticker, strategyName, isDark = tr
                     </div>
                 )}
             </div>
+
+            {/* Clean Professional TradingView-Style Indicators Modal */}
+            {showIndicatorsModal && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+                    onClick={() => setShowIndicatorsModal(false)}
+                >
+                    <div
+                        className="w-full max-w-md bg-[var(--bn-card)] border border-[var(--bn-border)] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--bn-border)] bg-[var(--bn-surface)]/30">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[#FCD535] font-serif font-black italic text-base leading-none">ƒx</span>
+                                <h3 className="text-sm font-semibold text-[var(--bn-text)] tracking-wide">
+                                    Technical Indicators
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setShowIndicatorsModal(false)}
+                                className="w-7 h-7 rounded-lg hover:bg-[var(--bn-surface)] text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)] flex items-center justify-center transition-colors text-sm cursor-pointer"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Search & Minimal Filter Tabs */}
+                        <div className="px-5 pt-3.5 pb-2.5 border-b border-[var(--bn-border)]">
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--bn-text-secondary)] text-xs">
+                                    🔍
+                                </span>
+                                <input
+                                    type="text"
+                                    placeholder="Search indicators..."
+                                    value={indicatorSearch}
+                                    onChange={(e) => setIndicatorSearch(e.target.value)}
+                                    className="w-full pl-8 pr-7 py-2 rounded-lg bg-[var(--bn-surface)] border border-[var(--bn-border)] text-xs text-[var(--bn-text)] placeholder-[var(--bn-text-secondary)] focus:outline-none focus:border-[#FCD535] transition-all"
+                                    autoFocus
+                                />
+                                {indicatorSearch && (
+                                    <button
+                                        onClick={() => setIndicatorSearch("")}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)] text-xs cursor-pointer"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Clean Category Filters */}
+                            <div className="flex items-center gap-1.5 mt-2.5 overflow-x-auto no-scrollbar">
+                                {[
+                                    { id: "all", label: "All" },
+                                    { id: "volatility", label: "Volatility" },
+                                    { id: "momentum", label: "Oscillators" },
+                                    { id: "moving_averages", label: "Moving Averages" },
+                                    { id: "volume", label: "Volume" },
+                                ].map((cat) => (
+                                    <button
+                                        key={cat.id}
+                                        onClick={() => setSelectedCategory(cat.id)}
+                                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                                            selectedCategory === cat.id
+                                                ? "bg-[var(--bn-surface-hover)] text-[#FCD535] font-semibold border border-[#FCD535]/30"
+                                                : "text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]"
+                                        }`}
+                                    >
+                                        {cat.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Clean List with Native iOS/TradingView Toggle Switches */}
+                        <div className="flex-1 overflow-y-auto px-2 py-1.5 divide-y divide-[var(--bn-border)]/40">
+                            {filteredIndicators.map((item) => (
+                                <div
+                                    key={item.id}
+                                    onClick={item.toggle}
+                                    className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--bn-surface)] transition-colors cursor-pointer group"
+                                >
+                                    {/* Indicator Identity */}
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                        <span
+                                            className="w-2 h-2 rounded-full flex-shrink-0"
+                                            style={{ backgroundColor: item.color }}
+                                        />
+                                        <span className="text-xs font-medium text-[var(--bn-text)] group-hover:text-white transition-colors truncate">
+                                            {item.name}
+                                        </span>
+                                        <span className="text-[10px] font-mono text-[var(--bn-text-secondary)] px-1.5 py-0.5 rounded bg-[var(--bn-surface)] flex-shrink-0">
+                                            {item.code}
+                                        </span>
+                                    </div>
+
+                                    {/* Right: Tag & Clean Switch */}
+                                    <div className="flex items-center gap-3 flex-shrink-0">
+                                        <span className="text-[10px] text-[var(--bn-text-secondary)] hidden sm:inline">
+                                            {item.categoryLabel}
+                                        </span>
+
+                                        {/* Toggle Switch */}
+                                        <div
+                                            className={`w-9 h-5 rounded-full transition-colors flex items-center p-0.5 ${
+                                                item.state ? "bg-[#0ECB81]" : "bg-[var(--bn-surface-hover)] border border-[var(--bn-border)]"
+                                            }`}
+                                        >
+                                            <div
+                                                className={`w-4 h-4 rounded-full bg-white shadow-sm transform transition-transform duration-150 ${
+                                                    item.state ? "translate-x-4" : "translate-x-0"
+                                                }`}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {filteredIndicators.length === 0 && (
+                                <div className="py-8 text-center text-[var(--bn-text-secondary)] text-xs">
+                                    No indicators found
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--bn-border)] bg-[var(--bn-surface)]/30 text-xs">
+                            <span className="text-[var(--bn-text-secondary)]">
+                                <strong className="text-[var(--bn-text)]">{activeCount}</strong> active
+                            </span>
+                            <div className="flex items-center gap-3">
+                                {activeCount > 0 && (
+                                    <button
+                                        onClick={() => {
+                                            setShowBB(false);
+                                            setShowRSI(false);
+                                            setShowATR(false);
+                                            setShowEMA9(false);
+                                            setShowEMA21(false);
+                                            setShowMA50(false);
+                                            setShowVolume(false);
+                                        }}
+                                        className="text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)] transition-colors cursor-pointer text-xs"
+                                    >
+                                        Clear all
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setShowIndicatorsModal(false)}
+                                    className="px-4 py-1.5 rounded-lg bg-[#FCD535] text-black font-semibold hover:bg-[#FCD535]/90 transition-colors cursor-pointer text-xs shadow-sm"
+                                >
+                                    Done
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

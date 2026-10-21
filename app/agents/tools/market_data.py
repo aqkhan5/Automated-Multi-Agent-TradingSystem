@@ -164,7 +164,8 @@ def compute_trade_risk_and_bounds(
         signal_action=signal_action,
         entry_price=current_price,
         take_profit=tp,
-        stop_loss=sl
+        stop_loss=sl,
+        atr=atr_14
     )
 
     result["ticker"] = normalize_ticker(ticker)

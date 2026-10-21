@@ -53,7 +53,7 @@ Parameters and capital risk shift dynamically based on timeframe and signal inte
 | **Macro Position** | `1d` | `180d` | **2.50%** | **4.00%** | 50/200-MA, Macro RSI |
 
 - **Hold Condition**: 0.00% Risk, zero capital allocation ($0.00).
-- **Dynamic Account Balance**: Scales to any capital base (prepared for live Binance API connection).
+- **Dynamic Account Balance**: Scales to any capital base (prepared for live exchange API connection).
 
 ---
 

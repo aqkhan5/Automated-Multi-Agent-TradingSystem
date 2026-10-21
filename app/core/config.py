@@ -10,7 +10,7 @@ FRONTEND_DIR = BASE_DIR / "front-end"
 load_dotenv(find_dotenv())
 
 class Settings:
-    PROJECT_NAME: str = "Automated-Multi-Agentic-Trading-System"
+    PROJECT_NAME: str = "FinAgentra Multi-Agent Trading System"
     VERSION: str = "1.0.0"
     DESCRIPTION: str = (
         "Decoupled Asynchronous Multi-Agent Quantitative Trading Desk "
@@ -24,7 +24,7 @@ class Settings:
     GEMINI_TEMPERATURE: float = float(os.getenv("GEMINI_TEMPERATURE", "0.0"))
     GEMINI_MAX_RETRIES: int = 5
     
-    # Portfolio Capital & Dynamic Risk Settings (Ready for live Binance API connection)
+    # Portfolio Capital & Dynamic Risk Settings (Ready for live exchange API connection)
     DEFAULT_ACCOUNT_CAPITAL: float = float(os.getenv("DEFAULT_ACCOUNT_CAPITAL", "10000.0"))
     
     # Database Settings

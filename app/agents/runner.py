@@ -9,6 +9,7 @@ from app.models.base import Base
 from app.models.trading import TradingHistory
 from app.schemas.trading import FinalTradingDecision
 from app.agents.nodes.manager import create_manager_agent
+from app.agents.nodes.debate import orchestrate_adversarial_debate
 from app.agents.tools.risk_engine import (
     normalize_ticker,
     evaluate_dynamic_risk,
@@ -28,7 +29,7 @@ async def run_trading_desk(
     """
     Executes the multi-agent cognitive trading loop across Equities, Crypto, and Commodities:
     1. Normalizes ticker (e.g. OIL -> CL=F, GOLD -> GC=F, BTC -> BTC-USD).
-    2. Ingests dynamic account capital (ready for live Binance API integration).
+    2. Ingests dynamic account capital (ready for live exchange / broker API integration).
     3. Executes multi-agent orchestration with deterministic temperature=0.0.
     4. Enforces strict schema decoding and Python-level anti-hallucination guardrails.
     5. Persists the verified outcome to Neon PostgreSQL.
@@ -105,21 +106,26 @@ async def run_trading_desk(
                         data = None
 
         # -------------------------------------------------------------
-        # 2. DETERMINISTIC FALLBACK IF ORCHESTRATOR SYNTHESIS TIMED OUT
+        # 2. RUN ADVERSARIAL MULTI-AGENT DEBATE & SYNTHESIZE OUTCOME
         # -------------------------------------------------------------
+        debate_result = await orchestrate_adversarial_debate(analyst_cache)
+
         if not data or "action" not in data or "risk_status" not in data:
             current_price = float(analyst_cache.get("current_price", 0.0))
             atr = float(analyst_cache.get("atr_14", 0.0))
             supply = float(analyst_cache["nearest_supply"]) if analyst_cache.get("nearest_supply") else None
             demand = float(analyst_cache["nearest_demand"]) if analyst_cache.get("nearest_demand") else None
-            momentum = str(analyst_cache.get("momentum", "neutral")).lower()
 
-            if momentum == "bullish":
-                sig_action = "BUY"
-            elif momentum == "bearish":
-                sig_action = "SELL"
-            else:
-                sig_action = "HOLD"
+            # Calibrate signal action from Arbiter consensus or fallback momentum
+            sig_action = debate_result.get("recommended_action")
+            if not sig_action or sig_action not in ("STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"):
+                momentum = str(analyst_cache.get("momentum", "neutral")).lower()
+                if momentum == "bullish":
+                    sig_action = "BUY"
+                elif momentum == "bearish":
+                    sig_action = "SELL"
+                else:
+                    sig_action = "HOLD"
 
             tp, sl = calculate_deterministic_trade_bounds(
                 current_price=current_price,
@@ -135,7 +141,8 @@ async def run_trading_desk(
                 signal_action=sig_action,
                 entry_price=current_price,
                 take_profit=tp,
-                stop_loss=sl
+                stop_loss=sl,
+                atr=atr
             )
 
             data = {
@@ -147,11 +154,35 @@ async def run_trading_desk(
                 "ENTRY_PRICE": current_price,
                 "TAKE_PROFIT": tp,
                 "STOP_LOSS": sl,
+                "var_95": risk_eval.get("var_95"),
+                "cvar_95": risk_eval.get("cvar_95"),
+                "kelly_recommended_pct": risk_eval.get("kelly_recommended_pct"),
+                "volatility_annualized": risk_eval.get("volatility_annualized"),
+                "debate_summary": debate_result,
                 "justification": (
-                    f"Decision synthesized via deterministic quantitative risk engine for {clean_ticker} "
-                    f"on {interval} ({strategy}). {risk_eval['justification']}"
+                    f"Decision synthesized via adversarial multi-agent debate (Consensus: {debate_result.get('consensus_score', 0.5):.2f}) "
+                    f"and quantitative risk engine for {clean_ticker} on {interval} ({strategy}). {risk_eval['justification']}"
                 )
             }
+        else:
+            if "debate_summary" not in data or not data["debate_summary"]:
+                data["debate_summary"] = debate_result
+            if "var_95" not in data or data.get("var_95") is None:
+                current_price = float(data.get("ENTRY_PRICE", 0.0))
+                atr = float(analyst_cache.get("atr_14", 0.0))
+                q_eval = evaluate_dynamic_risk(
+                    account_balance=balance,
+                    interval=interval,
+                    signal_action=data.get("action", "HOLD"),
+                    entry_price=current_price,
+                    take_profit=float(data.get("TAKE_PROFIT", 0.0)),
+                    stop_loss=float(data.get("STOP_LOSS", 0.0)),
+                    atr=atr
+                )
+                data["var_95"] = q_eval.get("var_95")
+                data["cvar_95"] = q_eval.get("cvar_95")
+                data["kelly_recommended_pct"] = q_eval.get("kelly_recommended_pct")
+                data["volatility_annualized"] = q_eval.get("volatility_annualized")
 
         decision = FinalTradingDecision(**data)
 

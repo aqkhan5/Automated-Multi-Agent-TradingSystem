@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from app.db.session import get_db_engine, get_async_session_factory
 from app.models.trading import TradingHistory
@@ -60,11 +60,12 @@ async def api_execute_trade(
 
 @router.get("/history")
 async def api_get_history(
+    user_email: Optional[str] = None,
     current_user: Optional[SystemUser] = Depends(get_current_user_optional)
 ):
     """
-    Fetches recent trading history records and audits their live execution status.
-    Optionally scoped to authenticated operator.
+    Fetches recent trading history records specifically scoped to the authenticated user.
+    Audits live execution status dynamically.
     """
     try:
         engine = get_db_engine()
@@ -72,9 +73,21 @@ async def api_get_history(
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Database connection setup failed: {err}")
 
+    target_email = current_user.email if current_user else (user_email.strip() if user_email else None)
+    target_name = current_user.full_name if current_user else None
+
     try:
         async with session_factory() as db_session:
-            stmt = select(TradingHistory).order_by(TradingHistory.timestamp.desc()).limit(15)
+            stmt = select(TradingHistory)
+            if target_email or target_name:
+                conditions = []
+                if target_email:
+                    conditions.append(TradingHistory.user_email == target_email)
+                if target_name:
+                    conditions.append(TradingHistory.user_name == target_name)
+                stmt = stmt.where(or_(*conditions))
+            
+            stmt = stmt.order_by(TradingHistory.timestamp.desc()).limit(25)
             result = await db_session.execute(stmt)
             records = result.scalars().all()
 

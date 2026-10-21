@@ -4,8 +4,9 @@ Calculates dynamic capital-at-risk, position sizing, and target bounds determini
 to eliminate LLM mathematical hallucination.
 """
 
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List, Union
 import math
+import numpy as np
 
 # Common Commodity and Energy ticker aliases mapped to official Yahoo Finance futures symbols
 COMMODITY_ALIASES: Dict[str, str] = {
@@ -38,17 +39,62 @@ CRYPTO_ALIASES: Dict[str, str] = {
     "ADA": "ADA-USD",
     "DOGE": "DOGE-USD",
     "AVAX": "AVAX-USD",
-    "LINK": "LINK-USD"
+    "LINK": "LINK-USD",
+    "DOT": "DOT-USD",
+    "NEAR": "NEAR-USD",
+    "MATIC": "POL-USD",
+    "POL": "POL-USD",
+    "SHIB": "SHIB-USD",
+    "LTC": "LTC-USD"
+}
+
+# Common Company and Asset names mapped to official ticker symbols (TradingView-style)
+COMPANY_ALIASES: Dict[str, str] = {
+    "BITCOIN": "BTC-USD",
+    "ETHEREUM": "ETH-USD",
+    "SOLANA": "SOL-USD",
+    "RIPPLE": "XRP-USD",
+    "CARDANO": "ADA-USD",
+    "DOGECOIN": "DOGE-USD",
+    "BINANCE COIN": "BNB-USD",
+    "AVALANCHE": "AVAX-USD",
+    "CHAINLINK": "LINK-USD",
+    "POLKADOT": "DOT-USD",
+    "APPLE": "AAPL",
+    "TESLA": "TSLA",
+    "NVIDIA": "NVDA",
+    "MICROSOFT": "MSFT",
+    "GOOGLE": "GOOGL",
+    "ALPHABET": "GOOGL",
+    "AMAZON": "AMZN",
+    "META": "META",
+    "FACEBOOK": "META",
+    "NETFLIX": "NFLX",
+    "AMD": "AMD",
+    "INTEL": "INTC",
+    "SP500": "SPY",
+    "S&P 500": "SPY",
+    "S&P": "SPY",
+    "NASDAQ": "QQQ",
+    "CRUDE OIL": "CL=F",
+    "NATURAL GAS": "NG=F"
 }
 
 def normalize_ticker(ticker: str) -> str:
     """
-    Normalizes input ticker symbols across asset classes:
-    - Commodities & Energy: OIL -> CL=F, GOLD -> GC=F
-    - Cryptocurrencies: BTC -> BTC-USD, ETH -> ETH-USD
+    Normalizes input ticker symbols or names across asset classes (TradingView-style):
+    - Company names: Bitcoin -> BTC-USD, Apple -> AAPL, Gold -> GC=F
+    - Crypto shorts: BTC -> BTC-USD, BTCUSDT -> BTC-USD
+    - Commodities: Crude Oil -> CL=F, Gold -> GC=F
     - Equities: AAPL, TSLA, NVDA preserved
     """
     clean = ticker.strip().upper()
+    if clean.endswith("/USDT") or clean.endswith("-USDT") or (clean.endswith("USDT") and len(clean) > 4):
+        base = clean.replace("/USDT", "").replace("-USDT", "").replace("USDT", "")
+        clean = f"{base}-USD"
+
+    if clean in COMPANY_ALIASES:
+        return COMPANY_ALIASES[clean]
     if clean in COMMODITY_ALIASES:
         return COMMODITY_ALIASES[clean]
     if clean in CRYPTO_ALIASES:
@@ -161,17 +207,88 @@ def calculate_deterministic_trade_bounds(
     return round(take_profit, 2), round(stop_loss, 2)
 
 
+def calculate_institutional_risk_metrics(
+    returns: Optional[Union[List[float], np.ndarray]] = None,
+    atr_pct: float = 0.02,
+    reward_risk_ratio: float = 2.0,
+    estimated_win_rate: float = 0.55,
+    fraction_multiplier: float = 0.25
+) -> Dict[str, float]:
+    """
+    Computes institutional quantitative risk metrics:
+    1. Parametric & Historical Value at Risk (VaR 95% & 99%).
+    2. Conditional Value at Risk (CVaR / Expected Shortfall 95% & 99%).
+    3. Fractional Kelly Criterion (f*) for mathematical position sizing.
+    4. Annualized Volatility.
+    """
+    if returns is None or len(returns) < 5:
+        sigma = max(0.005, atr_pct)
+        var_param_95 = round(1.64485 * sigma * 100, 2)
+        var_param_99 = round(2.32635 * sigma * 100, 2)
+        cvar_95 = round(1.95 * sigma * 100, 2)
+        cvar_99 = round(2.65 * sigma * 100, 2)
+        vol_ann = round(sigma * math.sqrt(252) * 100, 2)
+    else:
+        arr = np.array(returns, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        if len(arr) < 5:
+            sigma = max(0.005, atr_pct)
+            var_param_95 = round(1.64485 * sigma * 100, 2)
+            var_param_99 = round(2.32635 * sigma * 100, 2)
+            cvar_95 = round(1.95 * sigma * 100, 2)
+            cvar_99 = round(2.65 * sigma * 100, 2)
+            vol_ann = round(sigma * math.sqrt(252) * 100, 2)
+        else:
+            mu = float(np.mean(arr))
+            sigma = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.01
+            var_param_95 = round(max(0.1, -(mu - 1.64485 * sigma) * 100), 2)
+            var_param_99 = round(max(0.1, -(mu - 2.32635 * sigma) * 100), 2)
+            
+            q5 = float(np.percentile(arr, 5))
+            tail = arr[arr <= q5]
+            if len(tail) > 0:
+                cvar_95 = round(max(var_param_95, -float(np.mean(tail)) * 100), 2)
+            else:
+                cvar_95 = round(var_param_95 * 1.25, 2)
+            
+            q1 = float(np.percentile(arr, 1))
+            tail_1 = arr[arr <= q1]
+            if len(tail_1) > 0:
+                cvar_99 = round(max(var_param_99, -float(np.mean(tail_1)) * 100), 2)
+            else:
+                cvar_99 = round(var_param_99 * 1.25, 2)
+
+            vol_ann = round(sigma * math.sqrt(252) * 100, 2)
+
+    p = max(0.1, min(0.9, estimated_win_rate))
+    b = max(0.5, reward_risk_ratio)
+    kelly_full = (p * (b + 1) - 1) / b
+    kelly_fraction = max(0.0, kelly_full * fraction_multiplier)
+    kelly_pct = round(kelly_fraction * 100, 2)
+
+    return {
+        "var_95": var_param_95,
+        "var_99": var_param_99,
+        "cvar_95": cvar_95,
+        "cvar_99": cvar_99,
+        "kelly_recommended_pct": kelly_pct,
+        "volatility_annualized": vol_ann
+    }
+
+
 def evaluate_dynamic_risk(
     account_balance: float,
     interval: str,
     signal_action: str,
     entry_price: float,
     take_profit: float,
-    stop_loss: float
+    stop_loss: float,
+    atr: float = 0.0,
+    recent_returns: Optional[List[float]] = None
 ) -> Dict[str, Any]:
     """
     Computes exact risk-to-reward (R:R), dollar risk at risk, position quantity,
-    and clamped budget allocation based on the user's Dynamic Risk Matrix.
+    clamped budget allocation, and institutional risk metrics (VaR 95%, CVaR 95%, Kelly).
     """
     action = signal_action.upper().strip()
     clean_interval = interval.lower().strip()
@@ -191,6 +308,15 @@ def evaluate_dynamic_risk(
     # Default to $10,000 if not provided or non-positive
     capital = account_balance if account_balance and account_balance > 0 else 10000.0
 
+    # ATR percentage of price for volatility modeling
+    atr_pct = (atr / entry_price) if entry_price > 0 and atr > 0 else 0.02
+    quant_metrics = calculate_institutional_risk_metrics(
+        returns=recent_returns,
+        atr_pct=atr_pct,
+        reward_risk_ratio=2.0,
+        estimated_win_rate=0.55
+    )
+
     # Handle HOLD or invalid action
     if action == "HOLD" or take_profit <= 0 or stop_loss <= 0 or entry_price <= 0:
         return {
@@ -203,7 +329,8 @@ def evaluate_dynamic_risk(
             "position_quantity": 0.0,
             "budget_allocation": "Allocate 0% ($0.00 USDT)",
             "stable_capital": f"${capital:,.2f} USDT",
-            "justification": f"Trade set to HOLD: Zero capital allocated for {timeframe_key} timeframe."
+            "justification": f"Trade set to HOLD: Zero capital allocated for {timeframe_key} timeframe.",
+            **quant_metrics
         }
 
     # Calculate exact Risk-to-Reward (R:R)
@@ -221,10 +348,19 @@ def evaluate_dynamic_risk(
             "position_quantity": 0.0,
             "budget_allocation": "Allocate 0% ($0.00 USDT)",
             "stable_capital": f"${capital:,.2f} USDT",
-            "justification": "Rejected: Stop loss is identical to entry price (Zero unit risk)."
+            "justification": "Rejected: Stop loss is identical to entry price (Zero unit risk).",
+            **quant_metrics
         }
 
     rr_ratio = round(unit_reward / unit_risk, 2)
+
+    # Re-calculate quant metrics with exact calculated R:R
+    quant_metrics = calculate_institutional_risk_metrics(
+        returns=recent_returns,
+        atr_pct=atr_pct,
+        reward_risk_ratio=rr_ratio,
+        estimated_win_rate=0.58 if "STRONG" in action else 0.52
+    )
 
     # Compliance Gate: R:R must be >= 1.5
     if rr_ratio < 1.5:
@@ -238,7 +374,8 @@ def evaluate_dynamic_risk(
             "position_quantity": 0.0,
             "budget_allocation": "Allocate 0% ($0.00 USDT)",
             "stable_capital": f"${capital:,.2f} USDT",
-            "justification": f"Rejected: Asymmetric Risk-to-Reward ratio is {rr_ratio:.2f} (below required 1.50 threshold)."
+            "justification": f"Rejected: Asymmetric Risk-to-Reward ratio is {rr_ratio:.2f} (below required 1.50 threshold).",
+            **quant_metrics
         }
 
     # Fetch Risk Percentage from user's preference matrix
@@ -263,7 +400,8 @@ def evaluate_dynamic_risk(
 
     justification_str = (
         f"Approved: {timeframe_key.upper()} {action} risk sized at {risk_rate * 100:.2f}% (${max_dollar_risk:,.2f} USDT) "
-        f"on ${capital:,.2f} balance with R:R of {rr_ratio:.2f} (Take Profit: ${take_profit:.2f}, Stop Loss: ${stop_loss:.2f})."
+        f"on ${capital:,.2f} balance with R:R of {rr_ratio:.2f} (Take Profit: ${take_profit:.2f}, Stop Loss: ${stop_loss:.2f}) | "
+        f"VaR(95%): {quant_metrics['var_95']}%, CVaR(95%): {quant_metrics['cvar_95']}%, Kelly: {quant_metrics['kelly_recommended_pct']}%."
     )
 
     return {
@@ -276,5 +414,6 @@ def evaluate_dynamic_risk(
         "position_quantity": position_quantity,
         "budget_allocation": budget_allocation_str,
         "stable_capital": f"${capital:,.2f} USDT",
-        "justification": justification_str
+        "justification": justification_str,
+        **quant_metrics
     }

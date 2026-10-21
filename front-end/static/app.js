@@ -1,146 +1,663 @@
-/* ==========================================================================
-   LeetCode-Style React Conversion for Multi-Agent Trading System
-   ========================================================================== */
+// ==========================================================================
+// FinAgentra Institutional Automated Multi-Agent Trading Terminal
+// React 18 + Babel Standalone + Tailwind CSS
+// ==========================================================================
 
 const { useState, useEffect, useRef } = React;
 
 // ==========================================================================
-// 1. SUB-COMPONENT: Candlestick Chart (SVG-based)
+// ASSET UNIVERSE & TRADINGVIEW-STYLE TICKER RESOLVER
 // ==========================================================================
-function CandlestickChart({ candles, decision, ticker, strategyName }) {
-    if (!candles || candles.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center h-[240px] bg-[#2D2D2D] rounded border border-[#3F3F3F]">
-                <div className="text-[#A0A4A8] text-xs font-mono animate-pulse">
-                    AWAITING MARKET FEEDS FOR {ticker || "ASSET"}...
-                </div>
-            </div>
-        );
+const ASSET_UNIVERSE = [
+    // Cryptocurrencies
+    { symbol: "BTC-USD", display: "BTC/USDT", name: "Bitcoin", category: "Crypto", keywords: ["btc", "bitcoin", "crypto"] },
+    { symbol: "ETH-USD", display: "ETH/USDT", name: "Ethereum", category: "Crypto", keywords: ["eth", "ethereum", "ether"] },
+    { symbol: "SOL-USD", display: "SOL/USDT", name: "Solana", category: "Crypto", keywords: ["sol", "solana"] },
+    { symbol: "BNB-USD", display: "BNB/USDT", name: "BNB", category: "Crypto", keywords: ["bnb", "binance coin"] },
+    { symbol: "XRP-USD", display: "XRP/USDT", name: "XRP / Ripple", category: "Crypto", keywords: ["xrp", "ripple"] },
+    { symbol: "ADA-USD", display: "ADA/USDT", name: "Cardano", category: "Crypto", keywords: ["ada", "cardano"] },
+    { symbol: "DOGE-USD", display: "DOGE/USDT", name: "Dogecoin", category: "Crypto", keywords: ["doge", "dogecoin"] },
+    { symbol: "AVAX-USD", display: "AVAX/USDT", name: "Avalanche", category: "Crypto", keywords: ["avax", "avalanche"] },
+    { symbol: "LINK-USD", display: "LINK/USDT", name: "Chainlink", category: "Crypto", keywords: ["link", "chainlink"] },
+    { symbol: "DOT-USD", display: "DOT/USDT", name: "Polkadot", category: "Crypto", keywords: ["dot", "polkadot"] },
+    { symbol: "LTC-USD", display: "LTC/USDT", name: "Litecoin", category: "Crypto", keywords: ["ltc", "litecoin"] },
+    { symbol: "NEAR-USD", display: "NEAR/USDT", name: "NEAR Protocol", category: "Crypto", keywords: ["near"] },
+    { symbol: "POL-USD", display: "POL/USDT", name: "Polygon", category: "Crypto", keywords: ["matic", "pol", "polygon"] },
+    
+    // Equities & Tech Giants
+    { symbol: "AAPL", display: "AAPL", name: "Apple Inc.", category: "Stock", keywords: ["apple", "aapl", "iphone", "mac"] },
+    { symbol: "NVDA", display: "NVDA", name: "NVIDIA Corp.", category: "Stock", keywords: ["nvidia", "nvda", "gpu", "ai"] },
+    { symbol: "TSLA", display: "TSLA", name: "Tesla Inc.", category: "Stock", keywords: ["tesla", "tsla", "ev", "musk"] },
+    { symbol: "MSFT", display: "MSFT", name: "Microsoft Corp.", category: "Stock", keywords: ["microsoft", "msft", "windows", "azure"] },
+    { symbol: "GOOGL", display: "GOOGL", name: "Alphabet / Google", category: "Stock", keywords: ["google", "googl", "alphabet"] },
+    { symbol: "AMZN", display: "AMZN", name: "Amazon.com Inc.", category: "Stock", keywords: ["amazon", "amzn", "aws"] },
+    { symbol: "META", display: "META", name: "Meta Platforms", category: "Stock", keywords: ["meta", "facebook", "fb", "instagram"] },
+    { symbol: "AMD", display: "AMD", name: "Advanced Micro Devices", category: "Stock", keywords: ["amd", "semiconductor"] },
+    { symbol: "NFLX", display: "NFLX", name: "Netflix Inc.", category: "Stock", keywords: ["netflix", "nflx", "streaming"] },
+    { symbol: "SPY", display: "SPY", name: "S&P 500 ETF Trust", category: "ETF", keywords: ["sp500", "s&p", "s&p 500", "spy"] },
+    { symbol: "QQQ", display: "QQQ", name: "Invesco QQQ (Nasdaq 100)", category: "ETF", keywords: ["nasdaq", "qqq", "tech"] },
+
+    // Commodities & Energy Futures
+    { symbol: "GC=F", display: "GOLD", name: "Gold Futures", category: "Commodity", keywords: ["gold", "gc=f", "bullion", "metals"] },
+    { symbol: "CL=F", display: "CRUDE OIL", name: "Crude Oil (WTI)", category: "Commodity", keywords: ["oil", "crude", "cl=f", "wti", "petroleum"] },
+    { symbol: "SI=F", display: "SILVER", name: "Silver Futures", category: "Commodity", keywords: ["silver", "si=f"] },
+    { symbol: "NG=F", display: "NAT GAS", name: "Natural Gas Futures", category: "Commodity", keywords: ["gas", "natural gas", "ng=f"] }
+];
+
+function resolveTickerInput(input) {
+    if (!input || !input.trim()) return "BTC-USD";
+    const raw = input.trim();
+    const upper = raw.toUpperCase().replace(/\s+/g, " ");
+
+    // 1. Direct match with official symbol
+    const exact = ASSET_UNIVERSE.find(a => a.symbol.toUpperCase() === upper);
+    if (exact) return exact.symbol;
+
+    // 2. Direct match with display (e.g. BTC/USDT, CRUDE OIL, GOLD)
+    const matchDisplay = ASSET_UNIVERSE.find(a => a.display.toUpperCase() === upper);
+    if (matchDisplay) return matchDisplay.symbol;
+
+    // 3. Match with full name (e.g. "Bitcoin", "Apple Inc.", "Gold Futures")
+    const matchName = ASSET_UNIVERSE.find(a => a.name.toUpperCase() === upper || a.name.toUpperCase().startsWith(upper));
+    if (matchName) return matchName.symbol;
+
+    // 4. Match with keywords
+    const matchKeyword = ASSET_UNIVERSE.find(a => a.keywords.some(k => k.toUpperCase() === upper));
+    if (matchKeyword) return matchKeyword.symbol;
+
+    // 5. Clean common crypto suffixes: /USDT, -USDT, USDT, -USD
+    let cleaned = upper.replace("/USDT", "").replace("-USDT", "").replace("USDT", "").replace("-USD", "");
+    const matchCleaned = ASSET_UNIVERSE.find(a => a.keywords.some(k => k.toUpperCase() === cleaned));
+    if (matchCleaned) return matchCleaned.symbol;
+
+    // 6. Common commodity nicknames
+    if (upper === "OIL" || upper === "CRUDE" || upper === "WTI") return "CL=F";
+    if (upper === "GOLD") return "GC=F";
+    if (upper === "SILVER") return "SI=F";
+    if (upper === "NATGAS" || upper === "GAS" || upper === "NATURAL GAS") return "NG=F";
+
+    // 7. Auto-append -USD for bare crypto symbols if 3-5 letters
+    const bareCryptos = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX", "LINK", "DOT", "NEAR", "LTC", "POL", "SHIB"];
+    if (bareCryptos.includes(cleaned)) return `${cleaned}-USD`;
+
+    // 8. Return uppercase raw input
+    return upper;
+}
+
+// ==========================================================================
+// 1. TRADINGVIEW & ADVANCED INTERACTIVE CHARTING SUITE
+// ==========================================================================
+
+function getTradingViewWidgetSymbol(ticker) {
+    if (!ticker) return "BINANCE:BTCUSDT";
+    const t = ticker.toUpperCase().trim();
+    const map = {
+        "BTC-USD": "BINANCE:BTCUSDT",
+        "ETH-USD": "BINANCE:ETHUSDT",
+        "SOL-USD": "BINANCE:SOLUSDT",
+        "BNB-USD": "BINANCE:BNBUSDT",
+        "XRP-USD": "BINANCE:XRPUSDT",
+        "ADA-USD": "BINANCE:ADAUSDT",
+        "DOGE-USD": "BINANCE:DOGEUSDT",
+        "AVAX-USD": "BINANCE:AVAXUSDT",
+        "LINK-USD": "BINANCE:LINKUSDT",
+        "DOT-USD": "BINANCE:DOTUSDT",
+        "NEAR-USD": "BINANCE:NEARUSDT",
+        "POL-USD": "BINANCE:POLUSDT",
+        "GC=F": "TVC:GOLD",
+        "CL=F": "TVC:USOIL",
+        "SI=F": "TVC:SILVER",
+        "NG=F": "NYMEX:NG1!",
+        "AAPL": "NASDAQ:AAPL",
+        "NVDA": "NASDAQ:NVDA",
+        "TSLA": "NASDAQ:TSLA",
+        "MSFT": "NASDAQ:MSFT",
+        "GOOGL": "NASDAQ:GOOGL",
+        "AMZN": "NASDAQ:AMZN",
+        "META": "NASDAQ:META",
+        "AMD": "NASDAQ:AMD",
+        "NFLX": "NASDAQ:NFLX",
+        "SPY": "AMEX:SPY",
+        "QQQ": "NASDAQ:QQQ"
+    };
+    if (map[t]) return map[t];
+    if (t.endsWith("-USD")) return `BINANCE:${t.replace("-USD", "USDT")}`;
+    if (t.includes("=")) return `TVC:${t.replace("=F", "")}`;
+    return `NASDAQ:${t}`;
+}
+
+function calculateSMA(candles, period) {
+    if (!candles || candles.length < period) return [];
+    const result = [];
+    for (let i = 0; i < candles.length; i++) {
+        if (i < period - 1) continue;
+        let sum = 0;
+        for (let j = 0; j < period; j++) {
+            sum += candles[i - j].close;
+        }
+        result.push({
+            time: candles[i].time,
+            value: Number((sum / period).toFixed(2))
+        });
     }
+    return result;
+}
 
-    let minPrice = Infinity;
-    let maxPrice = -Infinity;
-    
-    candles.forEach(c => {
-        if (c.low < minPrice) minPrice = c.low;
-        if (c.high > maxPrice) maxPrice = c.high;
-    });
-    
-    const padding = (maxPrice - minPrice) * 0.08 || 1;
-    const chartMinPrice = minPrice - padding;
-    const chartMaxPrice = maxPrice + padding;
-    const priceRange = chartMaxPrice - chartMinPrice;
-    
-    const svgWidth = 500;
-    const svgHeight = 240;
-    const numCandles = candles.length;
-    const candleWidth = (svgWidth / numCandles) * 0.6;
-    const spacing = (svgWidth / numCandles);
-
-    // Calculate Y coordinates for TP, SL, Entry if active
-    let tpY = null;
-    let slY = null;
-    let entryY = null;
-
-    const showBounds = decision && 
-                       decision.ticker === ticker && 
-                       decision.TAKE_PROFIT > 0 && 
-                       decision.STOP_LOSS > 0;
-
-    if (showBounds && priceRange > 0) {
-        tpY = svgHeight - ((decision.TAKE_PROFIT - chartMinPrice) / priceRange) * svgHeight;
-        slY = svgHeight - ((decision.STOP_LOSS - chartMinPrice) / priceRange) * svgHeight;
-        
-        const entryPrice = decision.ENTRY_PRICE || (decision.TAKE_PROFIT / (1 + (strategyName === "15m" ? 0.02 : strategyName === "1h" ? 0.05 : strategyName === "4h" ? 0.08 : 0.15)));
-        entryY = svgHeight - ((entryPrice - chartMinPrice) / priceRange) * svgHeight;
+function calculateEMA(candles, period) {
+    if (!candles || candles.length < period) return [];
+    const k = 2 / (period + 1);
+    const result = [];
+    let sum = 0;
+    for (let i = 0; i < period; i++) sum += candles[i].close;
+    let prevEMA = sum / period;
+    result.push({ time: candles[period - 1].time, value: Number(prevEMA.toFixed(2)) });
+    for (let i = period; i < candles.length; i++) {
+        const currentEMA = (candles[i].close * k) + (prevEMA * (1 - k));
+        result.push({ time: candles[i].time, value: Number(currentEMA.toFixed(2)) });
+        prevEMA = currentEMA;
     }
+    return result;
+}
+
+function formatChartTime(timeStr) {
+    if (typeof timeStr === 'number') return timeStr;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(timeStr)) return timeStr;
+    const d = new Date(timeStr);
+    return Math.floor(d.getTime() / 1000);
+}
+
+function TradingViewWidgetEmbed({ symbol, isDark, interval = "15" }) {
+    const containerId = "tv_advanced_chart_container";
+    
+    useEffect(() => {
+        const tvSymbol = getTradingViewWidgetSymbol(symbol);
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.innerHTML = "";
+
+        if (window.TradingView) {
+            new window.TradingView.widget({
+                autosize: true,
+                symbol: tvSymbol,
+                interval: interval === "1d" ? "D" : interval === "4h" ? "240" : interval === "1h" ? "60" : "15",
+                timezone: "Etc/UTC",
+                theme: isDark ? "dark" : "light",
+                style: "1",
+                locale: "en",
+                toolbar_bg: isDark ? "#181A20" : "#F5F5F5",
+                enable_publishing: false,
+                allow_symbol_change: true,
+                hide_side_toolbar: false, // FULL LEFT DRAWING/EDITING TOOLBAR!
+                studies: [
+                    "MASimple@tv-basicstudies",
+                    "RSI@tv-basicstudies"
+                ],
+                container_id: containerId
+            });
+        }
+    }, [symbol, isDark, interval]);
 
     return (
-        <div className="relative w-full bg-[#2D2D2D] rounded border border-[#3F3F3F] p-4 flex flex-col justify-between">
-            <div className="flex justify-between items-center mb-2 border-b border-[#3F3F3F] pb-2">
-                <span className="text-xs font-mono text-[#3DD9F7] font-semibold">
-                    Live Feed Canvas - {ticker}
-                </span>
-                <div className="flex gap-4 text-[10px] font-mono text-[#A0A4A8]">
-                    <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 bg-[#29B86F] rounded-full inline-block"></span> Bullish
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 bg-[#FF7A45] rounded-full inline-block"></span> Bearish
-                    </span>
+        <div id={containerId} className="w-full h-full min-h-[380px]" />
+    );
+}
+
+function CandlestickChart({ candles, decision, ticker, strategyName, isDark = true }) {
+    const [chartMode, setChartMode] = useState("terminal"); // "terminal" | "tradingview"
+    const [showEMA9, setShowEMA9] = useState(true);
+    const [showEMA21, setShowEMA21] = useState(true);
+    const [showMA50, setShowMA50] = useState(false);
+    const [showVolume, setShowVolume] = useState(true);
+    const [showTargets, setShowTargets] = useState(true);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [legendData, setLegendData] = useState(null);
+
+    const chartContainerRef = useRef(null);
+    const chartWrapRef = useRef(null);
+    const chartInstanceRef = useRef(null);
+
+    const toggleFullscreen = () => {
+        if (!chartWrapRef.current) return;
+        if (!document.fullscreenElement) {
+            chartWrapRef.current.requestFullscreen().catch(err => console.error(err));
+            setIsFullscreen(true);
+        } else {
+            document.exitFullscreen().catch(err => console.error(err));
+            setIsFullscreen(false);
+        }
+    };
+
+    useEffect(() => {
+        const handleFsChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener("fullscreenchange", handleFsChange);
+        return () => document.removeEventListener("fullscreenchange", handleFsChange);
+    }, []);
+
+    const handleAutoFit = () => {
+        if (chartInstanceRef.current) {
+            chartInstanceRef.current.timeScale().fitContent();
+        }
+    };
+
+    useEffect(() => {
+        if (chartMode !== "terminal") return;
+        if (!chartContainerRef.current) return;
+        if (!window.LightweightCharts) return;
+
+        if (chartInstanceRef.current) {
+            chartInstanceRef.current.remove();
+            chartInstanceRef.current = null;
+        }
+
+        const container = chartContainerRef.current;
+        const width = container.clientWidth || 600;
+        const height = isFullscreen ? window.innerHeight - 80 : 380;
+
+        const chart = window.LightweightCharts.createChart(container, {
+            width: width,
+            height: height,
+            layout: {
+                background: {
+                    type: window.LightweightCharts.ColorType ? window.LightweightCharts.ColorType.Solid : 'solid',
+                    color: isDark ? '#1E2329' : '#FFFFFF',
+                },
+                textColor: isDark ? '#848E9C' : '#707A8A',
+                fontSize: 11,
+                fontFamily: 'Inter, system-ui, sans-serif',
+            },
+            grid: {
+                vertLines: {
+                    color: isDark ? 'rgba(43, 49, 58, 0.4)' : 'rgba(234, 236, 239, 0.6)',
+                },
+                horzLines: {
+                    color: isDark ? 'rgba(43, 49, 58, 0.4)' : 'rgba(234, 236, 239, 0.6)',
+                },
+            },
+            crosshair: {
+                mode: window.LightweightCharts.CrosshairMode ? window.LightweightCharts.CrosshairMode.Normal : 1,
+                vertLine: {
+                    color: isDark ? '#5E6673' : '#B7BDC6',
+                    width: 1,
+                    style: 3,
+                    labelBackgroundColor: '#FCD535',
+                },
+                horzLine: {
+                    color: isDark ? '#5E6673' : '#B7BDC6',
+                    width: 1,
+                    style: 3,
+                    labelBackgroundColor: '#FCD535',
+                },
+            },
+            rightPriceScale: {
+                borderColor: isDark ? '#2B313A' : '#EAECEF',
+                scaleMargins: {
+                    top: 0.1,
+                    bottom: 0.25,
+                },
+            },
+            timeScale: {
+                borderColor: isDark ? '#2B313A' : '#EAECEF',
+                timeVisible: true,
+                secondsVisible: false,
+            },
+            handleScroll: {
+                mouseWheel: true,
+                pressedMouseMove: true,
+                horzTouchDrag: true,
+                vertTouchDrag: true,
+            },
+            handleScale: {
+                axisPressedMouseMove: true,
+                mouseWheel: true,
+                pinch: true,
+            },
+        });
+
+        chartInstanceRef.current = chart;
+
+        if (candles && candles.length > 0) {
+            const sorted = [...candles].sort((a, b) => {
+                const tA = formatChartTime(a.time);
+                const tB = formatChartTime(b.time);
+                return (typeof tA === 'number' && typeof tB === 'number') ? tA - tB : String(tA).localeCompare(String(tB));
+            });
+
+            const seenTimes = new Set();
+            const cleanCandles = [];
+            const volumeData = [];
+
+            sorted.forEach(c => {
+                const t = formatChartTime(c.time);
+                if (!seenTimes.has(t)) {
+                    seenTimes.add(t);
+                    const o = parseFloat(c.open);
+                    const h = parseFloat(c.high);
+                    const l = parseFloat(c.low);
+                    const cl = parseFloat(c.close);
+                    cleanCandles.push({ time: t, open: o, high: h, low: l, close: cl });
+                    
+                    if (c.volume !== undefined) {
+                        volumeData.push({
+                            time: t,
+                            value: parseFloat(c.volume) || 0,
+                            color: cl >= o ? 'rgba(14, 203, 129, 0.35)' : 'rgba(246, 70, 93, 0.35)'
+                        });
+                    }
+                }
+            });
+
+            // 1. Candlestick Series
+            const candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#0ECB81',
+                downColor: '#F6465D',
+                borderVisible: false,
+                wickUpColor: '#0ECB81',
+                wickDownColor: '#F6465D',
+            });
+            candlestickSeries.setData(cleanCandles);
+
+            // 2. Volume Series
+            if (showVolume && volumeData.length > 0) {
+                const volumeSeries = chart.addHistogramSeries({
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: 'volume_pane',
+                });
+                chart.priceScale('volume_pane').applyOptions({
+                    scaleMargins: {
+                        top: 0.8,
+                        bottom: 0,
+                    },
+                });
+                volumeSeries.setData(volumeData);
+            }
+
+            // 3. EMA 9
+            if (showEMA9) {
+                const ema9 = calculateEMA(cleanCandles, 9);
+                if (ema9.length > 0) {
+                    const ema9Series = chart.addLineSeries({
+                        color: '#00F0FF',
+                        lineWidth: 1.5,
+                        title: 'EMA 9',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    ema9Series.setData(ema9);
+                }
+            }
+
+            // 4. EMA 21
+            if (showEMA21) {
+                const ema21 = calculateEMA(cleanCandles, 21);
+                if (ema21.length > 0) {
+                    const ema21Series = chart.addLineSeries({
+                        color: '#D946EF',
+                        lineWidth: 1.5,
+                        title: 'EMA 21',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    ema21Series.setData(ema21);
+                }
+            }
+
+            // 5. MA 50
+            if (showMA50) {
+                const ma50 = calculateSMA(cleanCandles, 50);
+                if (ma50.length > 0) {
+                    const ma50Series = chart.addLineSeries({
+                        color: '#F59E0B',
+                        lineWidth: 1.5,
+                        title: 'MA 50',
+                        priceLineVisible: false,
+                        crosshairMarkerVisible: false,
+                    });
+                    ma50Series.setData(ma50);
+                }
+            }
+
+            // 6. Multi-Agent TP/SL Targets
+            if (showTargets && decision && decision.ticker === ticker) {
+                const lineStyleDashed = window.LightweightCharts?.LineStyle?.Dashed || 2;
+                const lineStyleDotted = window.LightweightCharts?.LineStyle?.Dotted || 1;
+
+                if (decision.TAKE_PROFIT > 0) {
+                    candlestickSeries.createPriceLine({
+                        price: parseFloat(decision.TAKE_PROFIT),
+                        color: '#0ECB81',
+                        lineWidth: 2,
+                        lineStyle: lineStyleDashed,
+                        axisLabelVisible: true,
+                        title: `TP: $${parseFloat(decision.TAKE_PROFIT).toFixed(2)}`,
+                    });
+                }
+                if (decision.ENTRY_PRICE > 0) {
+                    candlestickSeries.createPriceLine({
+                        price: parseFloat(decision.ENTRY_PRICE),
+                        color: '#FCD535',
+                        lineWidth: 2,
+                        lineStyle: lineStyleDotted,
+                        axisLabelVisible: true,
+                        title: `ENTRY: $${parseFloat(decision.ENTRY_PRICE).toFixed(2)}`,
+                    });
+                }
+                if (decision.STOP_LOSS > 0) {
+                    candlestickSeries.createPriceLine({
+                        price: parseFloat(decision.STOP_LOSS),
+                        color: '#F6465D',
+                        lineWidth: 2,
+                        lineStyle: lineStyleDashed,
+                        axisLabelVisible: true,
+                        title: `SL: $${parseFloat(decision.STOP_LOSS).toFixed(2)}`,
+                    });
+                }
+            }
+
+            // Legend initial data
+            const lastCandle = cleanCandles[cleanCandles.length - 1];
+            if (lastCandle) {
+                const chg = lastCandle.close - lastCandle.open;
+                const chgPct = (chg / lastCandle.open) * 100;
+                setLegendData({
+                    open: lastCandle.open,
+                    high: lastCandle.high,
+                    low: lastCandle.low,
+                    close: lastCandle.close,
+                    change: chg,
+                    changePct: chgPct,
+                    time: lastCandle.time
+                });
+            }
+
+            // Crosshair move subscription
+            chart.subscribeCrosshairMove(param => {
+                if (!param || !param.time || !param.seriesData) return;
+                const data = param.seriesData.get(candlestickSeries);
+                if (data) {
+                    const chg = data.close - data.open;
+                    const chgPct = (chg / data.open) * 100;
+                    setLegendData({
+                        open: data.open,
+                        high: data.high,
+                        low: data.low,
+                        close: data.close,
+                        change: chg,
+                        changePct: chgPct,
+                        time: param.time
+                    });
+                }
+            });
+
+            chart.timeScale().fitContent();
+        }
+
+        const resizeObserver = new ResizeObserver(entries => {
+            if (entries.length > 0 && chartInstanceRef.current) {
+                const newWidth = entries[0].contentRect.width;
+                const newHeight = isFullscreen ? window.innerHeight - 80 : 380;
+                chartInstanceRef.current.applyOptions({ width: newWidth, height: newHeight });
+            }
+        });
+
+        resizeObserver.observe(container);
+
+        return () => {
+            resizeObserver.disconnect();
+            if (chartInstanceRef.current) {
+                chartInstanceRef.current.remove();
+                chartInstanceRef.current = null;
+            }
+        };
+    }, [candles, decision, ticker, isDark, chartMode, showEMA9, showEMA21, showMA50, showVolume, showTargets, isFullscreen]);
+
+    return (
+        <div ref={chartWrapRef} className={`relative w-full bn-panel p-4 flex flex-col justify-between ${isFullscreen ? 'bg-[var(--bn-card)] p-6' : ''}`}>
+            {/* Top Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2.5 pb-2.5 border-b border-[var(--bn-border)]">
+                {/* Mode Selector (Binance style) */}
+                <div className="flex items-center gap-1.5">
+                    <button
+                        onClick={() => setChartMode("terminal")}
+                        className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+                            chartMode === "terminal"
+                                ? "bg-[#FCD535] text-black shadow-sm"
+                                : "bg-[var(--bn-surface)] text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]"
+                        }`}
+                        title="Interactive Lightweight Chart with live multi-agent target bounds"
+                    >
+                        <span>⚡ Terminal Pro</span>
+                    </button>
+
+                    <button
+                        onClick={() => setChartMode("tradingview")}
+                        className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+                            chartMode === "tradingview"
+                                ? "bg-[#3861FB] text-white shadow-sm"
+                                : "bg-[var(--bn-surface)] text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]"
+                        }`}
+                        title="TradingView Advanced Engine with all drawing tools and technical indicators"
+                    >
+                        <span>📈 TradingView Advanced</span>
+                    </button>
+                </div>
+
+                {/* Controls & Indicators */}
+                <div className="flex flex-wrap items-center gap-2">
+                    {chartMode === "terminal" && (
+                        <>
+                            {/* Indicator Toggles */}
+                            <div className="flex items-center gap-1 text-[11px] font-mono">
+                                <button
+                                    onClick={() => setShowEMA9(!showEMA9)}
+                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                                        showEMA9 ? "border-[#00F0FF] text-[#00F0FF] bg-[#00F0FF]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
+                                    }`}
+                                    title="Toggle 9-Period Exponential Moving Average"
+                                >
+                                    EMA9
+                                </button>
+                                <button
+                                    onClick={() => setShowEMA21(!showEMA21)}
+                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                                        showEMA21 ? "border-[#D946EF] text-[#D946EF] bg-[#D946EF]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
+                                    }`}
+                                    title="Toggle 21-Period Exponential Moving Average"
+                                >
+                                    EMA21
+                                </button>
+                                <button
+                                    onClick={() => setShowMA50(!showMA50)}
+                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                                        showMA50 ? "border-[#F59E0B] text-[#F59E0B] bg-[#F59E0B]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
+                                    }`}
+                                    title="Toggle 50-Period Moving Average"
+                                >
+                                    MA50
+                                </button>
+                                <button
+                                    onClick={() => setShowVolume(!showVolume)}
+                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                                        showVolume ? "border-[#0ECB81] text-[#0ECB81] bg-[#0ECB81]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
+                                    }`}
+                                    title="Toggle Volume Histogram"
+                                >
+                                    VOL
+                                </button>
+                                <button
+                                    onClick={() => setShowTargets(!showTargets)}
+                                    className={`px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                                        showTargets ? "border-[#FCD535] text-[#FCD535] bg-[#FCD535]/15 font-bold" : "border-[var(--bn-border)] text-[var(--bn-text-secondary)]"
+                                    }`}
+                                    title="Toggle Multi-Agent TP/SL Price Lines"
+                                >
+                                    TARGETS
+                                </button>
+                            </div>
+
+                            {/* Auto Fit Reset */}
+                            <button
+                                onClick={handleAutoFit}
+                                className="px-2 py-0.5 text-[11px] rounded bg-[var(--bn-surface)] hover:bg-[var(--bn-surface-hover)] border border-[var(--bn-border)] text-[var(--bn-text)] transition-colors cursor-pointer flex items-center gap-1"
+                                title="Auto Fit & Reset Zoom"
+                            >
+                                ⟲ Auto Fit
+                            </button>
+                        </>
+                    )}
+
+                    {/* Fullscreen Option */}
+                    <button
+                        onClick={toggleFullscreen}
+                        className="px-2.5 py-0.5 text-[11px] font-semibold rounded bg-[var(--bn-surface)] hover:bg-[var(--bn-surface-hover)] border border-[var(--bn-border)] text-[var(--bn-text)] transition-colors cursor-pointer flex items-center gap-1"
+                        title="Toggle Fullscreen"
+                    >
+                        <span>⛶</span> {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                    </button>
                 </div>
             </div>
-            
-            <div className="flex-grow flex items-center justify-center relative overflow-hidden h-[180px]">
-                <svg className="w-full h-full" viewBox={`0 0 ${svgWidth} ${svgHeight}`}>
-                    {/* SVG Grid Lines */}
-                    <line x1="0" y1={svgHeight * 0.25} x2={svgWidth} y2={svgHeight * 0.25} stroke="#3F3F3F" strokeWidth="0.5" strokeDasharray="3,3" />
-                    <line x1="0" y1={svgHeight * 0.5} x2={svgWidth} y2={svgHeight * 0.5} stroke="#3F3F3F" strokeWidth="0.5" strokeDasharray="3,3" />
-                    <line x1="0" y1={svgHeight * 0.75} x2={svgWidth} y2={svgHeight * 0.75} stroke="#3F3F3F" strokeWidth="0.5" strokeDasharray="3,3" />
-                    
-                    {/* Draw Candlesticks */}
-                    {candles.map((c, idx) => {
-                        const x = idx * spacing + spacing / 2;
-                        const yHigh = svgHeight - ((c.high - chartMinPrice) / priceRange) * svgHeight;
-                        const yLow = svgHeight - ((c.low - chartMinPrice) / priceRange) * svgHeight;
-                        const yOpen = svgHeight - ((c.open - chartMinPrice) / priceRange) * svgHeight;
-                        const yClose = svgHeight - ((c.close - chartMinPrice) / priceRange) * svgHeight;
-                        
-                        const isBullish = c.close >= c.open;
-                        const color = isBullish ? "#29B86F" : "#FF7A45";
-                        const rY = Math.min(yOpen, yClose);
-                        const rHeight = Math.max(Math.abs(yOpen - yClose), 1.5);
-                        const rX = x - candleWidth / 2;
 
-                        return (
-                            <g key={idx}>
-                                {/* Wick */}
-                                <line x1={x} y1={yHigh} x2={x} y2={yLow} stroke={color} strokeWidth="1.5" />
-                                {/* Body */}
-                                <rect x={rX} y={rY} width={candleWidth} height={rHeight} fill={color} stroke={color} strokeWidth="0.5" />
-                            </g>
-                        );
-                    })}
+            {/* Live OHLCV Legend Bar (Terminal mode) */}
+            {chartMode === "terminal" && legendData && (
+                <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-mono text-[var(--bn-text-secondary)] px-1 mb-2">
+                    <span className="font-bold text-[var(--bn-text)]">{ticker}</span>
+                    <span>O: <strong className="text-[var(--bn-text)]">${legendData.open?.toFixed(2)}</strong></span>
+                    <span>H: <strong className="text-[var(--bn-text)]">${legendData.high?.toFixed(2)}</strong></span>
+                    <span>L: <strong className="text-[var(--bn-text)]">${legendData.low?.toFixed(2)}</strong></span>
+                    <span>C: <strong className={legendData.change >= 0 ? "text-[#0ECB81]" : "text-[#F6465D]"}>${legendData.close?.toFixed(2)}</strong></span>
+                    <span>Chg: <strong className={legendData.change >= 0 ? "text-[#0ECB81]" : "text-[#F6465D]"}>
+                        {legendData.change >= 0 ? `+${legendData.changePct?.toFixed(2)}%` : `${legendData.changePct?.toFixed(2)}%`}
+                    </strong></span>
+                </div>
+            )}
 
-                    {/* Overlay Targets if decision active */}
-                    {showBounds && (
-                        <g>
-                            {/* Take Profit Target */}
-                            {tpY >= 0 && tpY <= svgHeight && (
-                                <g>
-                                    <line x1="0" y1={tpY} x2={svgWidth} y2={tpY} stroke="#29B86F" strokeWidth="1" strokeDasharray="4,4" />
-                                    <text x="5" y={tpY - 4} fill="#29B86F" className="text-[9px] font-mono">TP: ${decision.TAKE_PROFIT && !isNaN(decision.TAKE_PROFIT) ? parseFloat(decision.TAKE_PROFIT).toFixed(2) : '0.00'}</text>
-                                </g>
-                            )}
+            {/* Main Interactive Chart Container */}
+            <div className="w-full relative">
+                {chartMode === "terminal" ? (
+                    <div
+                        ref={chartContainerRef}
+                        className={`w-full rounded-lg overflow-hidden ${isFullscreen ? 'h-[calc(100vh-140px)]' : 'h-[380px]'}`}
+                    />
+                ) : (
+                    <div className={`w-full rounded-lg overflow-hidden bg-[var(--bn-surface)] ${isFullscreen ? 'h-[calc(100vh-140px)]' : 'h-[400px]'}`}>
+                        <TradingViewWidgetEmbed
+                            symbol={ticker}
+                            isDark={isDark}
+                            interval={strategyName?.includes("15m") ? "15" : strategyName?.includes("1h") ? "60" : strategyName?.includes("4h") ? "240" : "D"}
+                        />
+                    </div>
+                )}
 
-                            {/* Entry Price Target */}
-                            {entryY >= 0 && entryY <= svgHeight && (
-                                <g>
-                                    <line x1="0" y1={entryY} x2={svgWidth} y2={entryY} stroke="#3DD9F7" strokeWidth="1" strokeDasharray="4,4" />
-                                    <text x="5" y={entryY - 4} fill="#3DD9F7" className="text-[9px] font-mono">Entry: ${decision.ENTRY_PRICE && !isNaN(decision.ENTRY_PRICE) ? parseFloat(decision.ENTRY_PRICE).toFixed(2) : '0.00'}</text>
-                                </g>
-                            )}
-
-                            {/* Stop Loss Target */}
-                            {slY >= 0 && slY <= svgHeight && (
-                                <g>
-                                    <line x1="0" y1={slY} x2={svgWidth} y2={slY} stroke="#EF4743" strokeWidth="1" strokeDasharray="4,4" />
-                                    <text x="5" y={slY - 4} fill="#EF4743" className="text-[9px] font-mono">SL: ${decision.STOP_LOSS && !isNaN(decision.STOP_LOSS) ? parseFloat(decision.STOP_LOSS).toFixed(2) : '0.00'}</text>
-                                </g>
-                            )}
-                        </g>
-                    )}
-                </svg>
-                {/* Status Overlay Badge */}
-                {decision && decision.ticker === ticker && (
-                    <div className="absolute top-2 left-2 bg-[#1A1A1A] bg-opacity-80 px-2 py-1 rounded border border-[#3F3F3F] text-[9px] font-mono flex items-center gap-1.5 select-none">
-                        <span className="text-[#A0A4A8] uppercase">Signal:</span>
-                        <span className={decision.action.includes("BUY") ? "text-[#29B86F] font-bold" : decision.action.includes("SELL") ? "text-[#FF7A45] font-bold" : "text-white font-bold"}>
+                {/* Multi-Agent Signal Pill (Terminal mode) */}
+                {chartMode === "terminal" && decision && decision.ticker === ticker && (
+                    <div className="absolute top-2 right-2 bg-[var(--bn-card)]/90 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-[var(--bn-border)] text-xs font-mono flex items-center gap-2 select-none shadow-lg z-10">
+                        <span className="text-[var(--bn-text-secondary)]">Signal:</span>
+                        <span className={decision.action.includes("BUY") ? "text-[#0ECB81] font-bold" : decision.action.includes("SELL") ? "text-[#F6465D] font-bold" : "text-white font-bold"}>
                             {decision.action}
                         </span>
-                        <span className="text-[#3F3F3F]">|</span>
-                        <span className="text-[#A0A4A8] uppercase">Risk:</span>
-                        <span className={decision.risk_status === "APPROVED" ? "text-[#29B86F] font-bold" : "text-[#EF4743] font-bold"}>
+                        <span className="text-[var(--bn-border)]">|</span>
+                        <span className={decision.risk_status === "APPROVED" ? "text-[#0ECB81] font-bold" : "text-[#F6465D] font-bold"}>
                             {decision.risk_status}
                         </span>
                     </div>
@@ -151,36 +668,44 @@ function CandlestickChart({ candles, decision, ticker, strategyName }) {
 }
 
 // ==========================================================================
-// 2. MAIN COMPONENT: AuthPortal (Sign In / Sign Up Card with flips)
+// 2. AUTHENTICATION PORTAL (CoinGlass / Yahoo Finance Architecture)
 // ==========================================================================
 function AuthPortal({ onLoginSuccess }) {
     const [isSignUp, setIsSignUp] = useState(false);
     const [loginEmail, setLoginEmail] = useState("");
     const [loginPassword, setLoginPassword] = useState("");
     const [loginError, setLoginError] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
+    const [rememberMe, setRememberMe] = useState(true);
+    const [loading, setLoading] = useState(false);
 
-    // Signup form state
     const [signupName, setSignupName] = useState("");
     const [signupEmail, setSignupEmail] = useState("");
     const [signupMobile, setSignupMobile] = useState("");
     const [signupPassword, setSignupPassword] = useState("");
     const [signupError, setSignupError] = useState("");
     const [signupSuccess, setSignupSuccess] = useState("");
+    const [showSignupPassword, setShowSignupPassword] = useState(false);
 
-    const [shake, setShake] = useState(false);
+    const [theme, setTheme] = useState(() => localStorage.getItem("bn_theme") || "dark");
 
-    const triggerShake = () => {
-        setShake(true);
-        setTimeout(() => setShake(false), 400);
+    useEffect(() => {
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("bn_theme", theme);
+    }, [theme]);
+
+    const toggleTheme = () => {
+        setTheme(prev => prev === 'dark' ? 'light' : 'dark');
     };
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setLoginError("");
+        setLoading(true);
 
         if (!loginEmail.trim() || !loginPassword.trim()) {
             setLoginError("Email and Password are required fields.");
-            triggerShake();
+            setLoading(false);
             return;
         }
 
@@ -193,7 +718,7 @@ function AuthPortal({ onLoginSuccess }) {
 
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.detail || "Credentials verification failed.");
+                throw new Error(data.detail || "Invalid login credentials.");
             }
 
             if (data.access_token) {
@@ -203,7 +728,8 @@ function AuthPortal({ onLoginSuccess }) {
             onLoginSuccess(data.operator);
         } catch (err) {
             setLoginError(err.message);
-            triggerShake();
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -211,239 +737,786 @@ function AuthPortal({ onLoginSuccess }) {
         e.preventDefault();
         setSignupError("");
         setSignupSuccess("");
+        setLoading(true);
 
-        // Basic validations
         if (!signupName.trim() || !signupEmail.trim() || !signupMobile.trim() || !signupPassword.trim()) {
-            setSignupError("All registration fields are required.");
-            triggerShake();
+            setSignupError("All fields are required for registration.");
+            setLoading(false);
             return;
         }
-
-        if (signupPassword.length < 6) {
-            setSignupError("Password must be at least 6 characters.");
-            triggerShake();
-            return;
-        }
-
-        // Pakistani mobile regex validator
-        const mobileRegex = /^(03|\+923)\d{9}$/;
-        if (!mobileRegex.test(signupMobile.trim())) {
-            setSignupError("Mobile must be a valid format (e.g. +923xxxxxxxxx or 03xxxxxxxxx).");
-            triggerShake();
-            return;
-        }
-
-        const payload = {
-            full_name: signupName.trim(),
-            email: signupEmail.trim(),
-            mobile_number: signupMobile.trim(),
-            password: signupPassword.trim()
-        };
 
         try {
             const response = await fetch("/api/signup", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({
+                    full_name: signupName.trim(),
+                    email: signupEmail.trim(),
+                    mobile_number: signupMobile.trim(),
+                    password: signupPassword.trim()
+                })
             });
 
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.detail || "Operator registration rejected.");
+                throw new Error(data.detail || "Registration failed.");
             }
 
-            setSignupSuccess("Registration successful! Redirecting to login portal...");
+            setSignupSuccess("Account registered successfully! Redirecting to login...");
             setTimeout(() => {
                 setIsSignUp(false);
                 setLoginEmail(signupEmail);
-                setSignupName("");
-                setSignupEmail("");
-                setSignupMobile("");
-                setSignupPassword("");
                 setSignupSuccess("");
-            }, 2000);
+            }, 1000);
         } catch (err) {
             setSignupError(err.message);
-            triggerShake();
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 w-full h-full flex items-center justify-center bg-[#1A1A1A] z-50 p-4">
-            <div className={`w-full max-w-[500px] bg-[#232323] border border-[#3F3F3F] p-8 rounded shadow-md transition-transform duration-300 ${shake ? "shake-feedback" : ""}`}>
-                
-                {/* Institutional Header */}
-                <div className="text-center border-b border-[#3F3F3F] pb-4 mb-6">
-                    <span className="text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider block mb-1">
-                        Secure Operator Console Gate
-                    </span>
-                    <h2 className="text-lg font-bold text-white uppercase tracking-tight">
-                        Multi-Agent Relational Trading System
-                    </h2>
+        <div className="min-h-screen flex flex-col justify-between bg-[var(--bn-bg)] select-none">
+            {/* Minimalist Top Brand Header */}
+            <header className="w-full px-6 py-4 flex items-center justify-between z-10 border-b border-[var(--bn-border)] bg-[var(--bn-card)]">
+                <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-[#FCD535] flex items-center justify-center shadow-md shadow-[#FCD535]/30 ring-2 ring-[#FCD535]/40 flex-shrink-0">
+                        <svg className="w-5 h-5 text-black fill-current stroke-black stroke-[0.5]" viewBox="0 0 24 24">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        </svg>
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-black tracking-tight text-[var(--bn-text)]">
+                            Fin<span className="text-[#FCD535]">Agentra</span>
+                        </span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#FCD535] bg-[#FCD535]/15 px-1.5 py-0.5 rounded border border-[#FCD535]/30">
+                            PRO
+                        </span>
+                    </div>
                 </div>
 
-                {/* Sliding Toggle Control */}
-                <div className="relative w-full bg-[#1A1A1A] p-1 rounded border border-[#3F3F3F] flex mb-6 select-none">
-                    <div 
-                        className="auth-toggle-slider" 
-                        style={{ transform: isSignUp ? 'translateX(100%)' : 'translateX(0)' }}
-                    />
-                    <button 
-                        onClick={() => { setIsSignUp(false); setLoginError(""); setSignupError(""); }}
-                        className={`relative z-10 w-1/2 text-center text-xs font-semibold py-2 transition-colors duration-200 ${!isSignUp ? "text-[#1A1A1A]" : "text-[#A0A4A8] hover:text-white"}`}
-                    >
-                        Access Portal
-                    </button>
-                    <button 
-                        onClick={() => { setIsSignUp(true); setLoginError(""); setSignupError(""); }}
-                        className={`relative z-10 w-1/2 text-center text-xs font-semibold py-2 transition-colors duration-200 ${isSignUp ? "text-[#1A1A1A]" : "text-[#A0A4A8] hover:text-white"}`}
-                    >
-                        Register Operator
-                    </button>
+                <button
+                    onClick={toggleTheme}
+                    className="px-3 py-1.5 rounded-lg bg-[var(--bn-surface)] border border-[var(--bn-border)] text-[var(--bn-text-secondary)] hover:text-[#FCD535] transition-all cursor-pointer text-xs flex items-center gap-1.5"
+                    title="Toggle Light / Dark theme"
+                >
+                    {theme === 'dark' ? '💡 Light' : '🌙 Dark'}
+                </button>
+            </header>
+
+            {/* Center Content Area */}
+            <div className="flex-grow flex items-center justify-center p-4 md:p-8 relative">
+                {/* Subtle Geometric Background */}
+                <div className="absolute inset-0 bg-gradient-to-b from-[#181A20]/40 via-transparent to-[#0B0E11] pointer-events-none"></div>
+
+                {/* Authentication Card */}
+                <div className="w-full max-w-[420px] bg-[#181A20] border border-[#2B313A] rounded-xl p-6 sm:p-8 shadow-2xl relative z-10">
+                    {!isSignUp ? (
+                        /* ================= LOGIN VIEW ================= */
+                        <div>
+                            <h1 className="text-2xl font-bold text-[#EAECEF] tracking-tight">Login</h1>
+                            <p className="text-xs text-[#848E9C] mt-1.5 mb-6">
+                                New to FinAgentra?{" "}
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsSignUp(true); setLoginError(""); }}
+                                    className="text-[#FCD535] hover:underline font-semibold cursor-pointer"
+                                >
+                                    Create an account
+                                </button>
+                            </p>
+
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <div>
+                                    <label className="text-xs font-medium text-[#848E9C] block mb-1.5">Email</label>
+                                    <input
+                                        type="email"
+                                        value={loginEmail}
+                                        onChange={(e) => setLoginEmail(e.target.value)}
+                                        placeholder="Email"
+                                        className="w-full px-3.5 py-2.5 text-xs rounded-lg bg-[#2B313A] border border-[#363C4E] text-[#EAECEF] focus:border-[#FCD535] focus:outline-none transition-all placeholder-[#5E6673]"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-medium text-[#848E9C] block mb-1.5">Password</label>
+                                    <div className="relative">
+                                        <input
+                                            type={showPassword ? "text" : "password"}
+                                            value={loginPassword}
+                                            onChange={(e) => setLoginPassword(e.target.value)}
+                                            placeholder="Password"
+                                            className="w-full px-3.5 py-2.5 text-xs rounded-lg bg-[#2B313A] border border-[#363C4E] text-[#EAECEF] focus:border-[#FCD535] focus:outline-none transition-all placeholder-[#5E6673] pr-10"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-2.5 text-[#848E9C] hover:text-[#EAECEF] text-xs cursor-pointer p-0.5"
+                                            title={showPassword ? "Hide password" : "Show password"}
+                                        >
+                                            {showPassword ? (
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                                            ) : (
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between text-xs pt-0.5">
+                                    <label className="flex items-center gap-1.5 text-[#848E9C] cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={rememberMe}
+                                            onChange={(e) => setRememberMe(e.target.checked)}
+                                            className="rounded accent-[#FCD535] w-3.5 h-3.5"
+                                        />
+                                        <span>Stay signed in</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => alert("Password recovery: Please contact the system administrator or check your registered email.")}
+                                        className="text-[#848E9C] hover:text-[#FCD535] transition-colors cursor-pointer"
+                                    >
+                                        Forgot Password?
+                                    </button>
+                                </div>
+
+                                {loginError && (
+                                    <div className="p-2.5 bg-[#F6465D]/15 border border-[#F6465D] rounded-lg text-[#F6465D] text-xs">
+                                        {loginError}
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full py-2.5 mt-2 rounded-lg bg-[#FCD535] hover:bg-[#F0B90B] text-black font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] cursor-pointer disabled:opacity-60"
+                                >
+                                    {loading ? "Authenticating..." : "Login"}
+                                </button>
+                            </form>
+
+                            {/* Divider OR */}
+                            <div className="relative my-5 text-center">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-[#2B313A]"></div>
+                                </div>
+                                <span className="relative px-3 text-[11px] uppercase tracking-wider text-[#5E6673] bg-[#181A20]">
+                                    OR
+                                </span>
+                            </div>
+
+                            {/* Social Sign-in Button */}
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => alert("Google OAuth SSO configured for production domain. Please use your registered email to log in.")}
+                                    className="w-full py-2.5 px-3 rounded-lg bg-[#2B313A] hover:bg-[#363C4E] text-[#EAECEF] border border-[#363C4E] text-xs font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer"
+                                >
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                    </svg>
+                                    <span>Continue with Google</span>
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        /* ================= REGISTER VIEW ================= */
+                        <div>
+                            <h1 className="text-2xl font-bold text-[#EAECEF] tracking-tight">Create an account</h1>
+                            <p className="text-xs text-[#848E9C] mt-1.5 mb-6">
+                                Already have an account?{" "}
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsSignUp(false); setSignupError(""); }}
+                                    className="text-[#FCD535] hover:underline font-semibold cursor-pointer"
+                                >
+                                    Login
+                                </button>
+                            </p>
+
+                            <form onSubmit={handleSignup} className="space-y-3.5">
+                                <div>
+                                    <label className="text-xs font-medium text-[#848E9C] block mb-1.5">Full Name</label>
+                                    <input
+                                        type="text"
+                                        value={signupName}
+                                        onChange={(e) => setSignupName(e.target.value)}
+                                        placeholder="John Doe"
+                                        className="w-full px-3.5 py-2.5 text-xs rounded-lg bg-[#2B313A] border border-[#363C4E] text-[#EAECEF] focus:border-[#FCD535] focus:outline-none transition-all placeholder-[#5E6673]"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-medium text-[#848E9C] block mb-1.5">Email Address</label>
+                                    <input
+                                        type="email"
+                                        value={signupEmail}
+                                        onChange={(e) => setSignupEmail(e.target.value)}
+                                        placeholder="name@example.com"
+                                        className="w-full px-3.5 py-2.5 text-xs rounded-lg bg-[#2B313A] border border-[#363C4E] text-[#EAECEF] focus:border-[#FCD535] focus:outline-none transition-all placeholder-[#5E6673]"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-medium text-[#848E9C] block mb-1.5">Mobile Number</label>
+                                    <input
+                                        type="tel"
+                                        value={signupMobile}
+                                        onChange={(e) => setSignupMobile(e.target.value)}
+                                        placeholder="+1 234 567 8900"
+                                        className="w-full px-3.5 py-2.5 text-xs rounded-lg bg-[#2B313A] border border-[#363C4E] text-[#EAECEF] focus:border-[#FCD535] focus:outline-none transition-all placeholder-[#5E6673]"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-medium text-[#848E9C] block mb-1.5">Password</label>
+                                    <div className="relative">
+                                        <input
+                                            type={showSignupPassword ? "text" : "password"}
+                                            value={signupPassword}
+                                            onChange={(e) => setSignupPassword(e.target.value)}
+                                            placeholder="Create a strong password"
+                                            className="w-full px-3.5 py-2.5 text-xs rounded-lg bg-[#2B313A] border border-[#363C4E] text-[#EAECEF] focus:border-[#FCD535] focus:outline-none transition-all placeholder-[#5E6673] pr-10"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowSignupPassword(!showSignupPassword)}
+                                            className="absolute right-3 top-2.5 text-[#848E9C] hover:text-[#EAECEF] text-xs cursor-pointer p-0.5"
+                                            title={showSignupPassword ? "Hide password" : "Show password"}
+                                        >
+                                            {showSignupPassword ? (
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                                            ) : (
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {signupError && (
+                                    <div className="p-2.5 bg-[#F6465D]/15 border border-[#F6465D] rounded-lg text-[#F6465D] text-xs">
+                                        {signupError}
+                                    </div>
+                                )}
+                                {signupSuccess && (
+                                    <div className="p-2.5 bg-[#0ECB81]/15 border border-[#0ECB81] rounded-lg text-[#0ECB81] text-xs">
+                                        {signupSuccess}
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full py-2.5 mt-2 rounded-lg bg-[#FCD535] hover:bg-[#F0B90B] text-black font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-[0.99] cursor-pointer disabled:opacity-60"
+                                >
+                                    {loading ? "Registering..." : "Create Account"}
+                                </button>
+                            </form>
+
+                            {/* Divider OR */}
+                            <div className="relative my-5 text-center">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-[#2B313A]"></div>
+                                </div>
+                                <span className="relative px-3 text-[11px] uppercase tracking-wider text-[#5E6673] bg-[#181A20]">
+                                    OR
+                                </span>
+                            </div>
+
+                            {/* Social Sign-in Button */}
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => alert("Google OAuth SSO configured for production domain.")}
+                                    className="w-full py-2.5 px-3 rounded-lg bg-[#2B313A] hover:bg-[#363C4E] text-[#EAECEF] border border-[#363C4E] text-xs font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer"
+                                >
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                    </svg>
+                                    <span>Continue with Google</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
-
-                {!isSignUp ? (
-                    /* SIGN IN FORM */
-                    <form onSubmit={handleLogin} className="space-y-4">
-                        <div>
-                            <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider font-semibold mb-1">
-                                Operator Email Channel
-                            </label>
-                            <input 
-                                type="email" 
-                                value={loginEmail}
-                                onChange={(e) => setLoginEmail(e.target.value)}
-                                className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-2 text-xs text-white focus:outline-none"
-                                placeholder="operator@trading.com"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider font-semibold mb-1">
-                                Password Hashing Key
-                            </label>
-                            <input 
-                                type="password" 
-                                value={loginPassword}
-                                onChange={(e) => setLoginPassword(e.target.value)}
-                                className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-2 text-xs text-white focus:outline-none"
-                                placeholder="••••••••"
-                            />
-                        </div>
-
-                        {loginError && (
-                            <div className="text-[11px] text-[#EF4743] font-mono bg-red-950 bg-opacity-30 border border-[#EF4743] p-2 rounded">
-                                Error: {loginError}
-                            </div>
-                        )}
-
-                        <button 
-                            type="submit"
-                            className="w-full bg-[#3DD9F7] hover:bg-opacity-90 text-[#1A1A1A] font-bold font-mono tracking-wider py-2.5 rounded text-xs uppercase"
-                        >
-                            Open Communication Session
-                        </button>
-                    </form>
-                ) : (
-                    /* SIGN UP FORM */
-                    <form onSubmit={handleSignup} className="space-y-3">
-                        <div>
-                            <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider font-semibold mb-1">
-                                Operator Full Name
-                            </label>
-                            <input 
-                                type="text" 
-                                value={signupName}
-                                onChange={(e) => setSignupName(e.target.value)}
-                                className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-1.5 text-xs text-white focus:outline-none"
-                                placeholder="FAQ"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider font-semibold mb-1">
-                                Operator Email Channel
-                            </label>
-                            <input 
-                                type="email" 
-                                value={signupEmail}
-                                onChange={(e) => setSignupEmail(e.target.value)}
-                                className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-1.5 text-xs text-white focus:outline-none"
-                                placeholder="operator@trading.com"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider font-semibold mb-1">
-                                Mobile Verification Number
-                            </label>
-                            <input 
-                                type="text" 
-                                value={signupMobile}
-                                onChange={(e) => setSignupMobile(e.target.value)}
-                                className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-1.5 text-xs text-white focus:outline-none"
-                                placeholder="+923001234567"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider font-semibold mb-1">
-                                Password (Min 6 Chars)
-                            </label>
-                            <input 
-                                type="password" 
-                                value={signupPassword}
-                                onChange={(e) => setSignupPassword(e.target.value)}
-                                className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-1.5 text-xs text-white focus:outline-none"
-                                placeholder="••••••••"
-                            />
-                        </div>
-
-                        {signupError && (
-                            <div className="text-[11px] text-[#EF4743] font-mono bg-red-950 bg-opacity-30 border border-[#EF4743] p-2 rounded">
-                                Error: {signupError}
-                            </div>
-                        )}
-
-                        {signupSuccess && (
-                            <div className="text-[11px] text-[#29B86F] font-mono bg-green-950 bg-opacity-30 border border-[#29B86F] p-2 rounded">
-                                {signupSuccess}
-                            </div>
-                        )}
-
-                        <button 
-                            type="submit"
-                            className="w-full bg-[#3DD9F7] hover:bg-opacity-90 text-[#1A1A1A] font-bold font-mono tracking-wider py-2.5 rounded text-xs uppercase"
-                        >
-                            Commit Relational Credentials
-                        </button>
-                    </form>
-                )}
-
             </div>
+
+            {/* Minimalist Footer */}
+            <footer className="w-full bg-[var(--bn-card)] border-t border-[var(--bn-border)] px-6 py-3 text-center text-xs text-[var(--bn-text-secondary)] flex flex-col sm:flex-row items-center justify-between gap-2">
+                <div>
+                    FinAgentra Institutional Multi-Agent Trading System
+                </div>
+                <div className="flex items-center gap-4">
+                    <span>System Status: <span className="text-[#0ECB81] font-semibold">● Operational</span></span>
+                </div>
+            </footer>
         </div>
     );
 }
 
 // ==========================================================================
-// 3. MAIN COMPONENT: Dashboard (3-column layout)
+// 3. RESEARCH LABORATORY & ABLATION BENCHMARKS VIEW
+// ==========================================================================
+function ResearchLabView({ operator, isDark = true }) {
+    const [ticker, setTicker] = useState("BTC-USD");
+    const [period, setPeriod] = useState("180d");
+    const [capital, setCapital] = useState(10000);
+    const [loading, setLoading] = useState(false);
+    const [results, setResults] = useState(null);
+    const [error, setError] = useState(null);
+    const [copiedLatex, setCopiedLatex] = useState(false);
+
+    const quickTickers = ["BTC-USD", "ETH-USD", "AAPL", "NVDA", "CL=F", "GC=F"];
+    const periods = ["30d", "90d", "180d", "1y"];
+
+    const runBacktest = async (t = ticker, p = period) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const cleanTicker = resolveTickerInput(t);
+            const token = sessionStorage.getItem("access_token");
+            const res = await fetch("/api/backtest/run", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    ticker: cleanTicker,
+                    period: p,
+                    initial_capital: parseFloat(capital) || 10000.0
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Backtest calculation failed.");
+            setResults(data);
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        runBacktest();
+    }, []);
+
+    const renderChart = () => {
+        if (!results || !results.models) return null;
+        const models = results.models;
+        const keys = ['benchmark', 'single_agent', 'linear_mas', 'adversarial_mas'];
+        
+        let allVals = [];
+        keys.forEach(k => {
+            if (models[k] && models[k].equity_curve) {
+                allVals.push(...models[k].equity_curve);
+            }
+        });
+        if (allVals.length === 0) return null;
+
+        const minVal = Math.min(...allVals) * 0.98;
+        const maxVal = Math.max(...allVals) * 1.02;
+        const range = maxVal - minVal || 1;
+
+        const width = 800;
+        const height = 240;
+        const padX = 65;
+        const padY = 25;
+        const chartW = width - padX - 25;
+        const chartH = height - padY * 2;
+
+        const getPoints = (curve) => {
+            if (!curve || curve.length === 0) return "";
+            const n = curve.length - 1 || 1;
+            return curve.map((val, idx) => {
+                const x = padX + (idx / n) * chartW;
+                const y = height - padY - ((val - minVal) / range) * chartH;
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(" ");
+        };
+
+        const colors = {
+            benchmark: { stroke: "#848E9C", dash: "4,4", label: "Benchmark (Buy & Hold)" },
+            single_agent: { stroke: "#FF7A45", dash: "", label: "Single Agent Baseline" },
+            linear_mas: { stroke: "#FCD535", dash: "", label: "Linear Multi-Agent" },
+            adversarial_mas: { stroke: "#0ECB81", dash: "", label: "Adversarial MAS (Ours)" }
+        };
+
+        const gridSteps = 4;
+        const gridLines = [];
+        for (let i = 0; i <= gridSteps; i++) {
+            const yVal = minVal + (range * (i / gridSteps));
+            const yPos = height - padY - (i / gridSteps) * chartH;
+            gridLines.push(
+                <g key={i}>
+                    <line x1={padX} y1={yPos} x2={width - 25} y2={yPos} stroke={isDark ? "#2B313A" : "#EAECEF"} strokeWidth="1" strokeDasharray="2,2" />
+                    <text x={padX - 8} y={yPos + 3} textAnchor="end" fill="#848E9C" className="text-[9px] font-mono">${yVal.toFixed(0)}</text>
+                </g>
+            );
+        }
+
+        return (
+            <div className="w-full">
+                <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto min-w-[620px] bg-[var(--bn-surface)] rounded-lg border border-[var(--bn-border)]">
+                    {gridLines}
+                    {keys.map(k => {
+                        const m = models[k];
+                        if (!m) return null;
+                        const c = colors[k];
+                        const pts = getPoints(m.equity_curve);
+                        return (
+                            <polyline
+                                key={k}
+                                fill="none"
+                                stroke={c.stroke}
+                                strokeWidth={k === 'adversarial_mas' ? "2.5" : "1.5"}
+                                strokeDasharray={c.dash}
+                                points={pts}
+                            />
+                        );
+                    })}
+                </svg>
+                <div className="flex flex-wrap items-center justify-center gap-4 mt-3 text-xs font-sans">
+                    {keys.map(k => (
+                        <div key={k} className="flex items-center gap-1.5">
+                            <span className="w-3.5 h-1 inline-block rounded" style={{ backgroundColor: colors[k].stroke }}></span>
+                            <span className="text-[var(--bn-text-secondary)] font-medium">{colors[k].label}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    const generateLatex = () => {
+        if (!results || !results.models) return "";
+        const m = results.models;
+        return `\\begin{table}[ht]
+\\centering
+\\small
+\\caption{Ablation Study: Multi-Agent Architectures vs. Benchmarks on \\texttt{${results.ticker}} (${results.period})}
+\\label{tab:ablation_${results.ticker.toLowerCase()}}
+\\begin{tabular}{lcccccc}
+\\toprule
+\\textbf{Model Architecture} & \\textbf{Return (\\%)} & \\textbf{Sharpe} & \\textbf{Sortino} & \\textbf{MaxDD (\\%)} & \\textbf{Win Rate (\\%)} & \\textbf{Alpha (\\%)} \\\\
+\\midrule
+Benchmark (Buy \\& Hold) & ${m.benchmark?.metrics?.total_return_pct}\\% & ${m.benchmark?.metrics?.sharpe_ratio} & ${m.benchmark?.metrics?.sortino_ratio} & ${m.benchmark?.metrics?.max_drawdown_pct}\\% & ${m.benchmark?.metrics?.win_rate_pct}\\% & --- \\\\
+Single Monolithic Agent & ${m.single_agent?.metrics?.total_return_pct}\\% & ${m.single_agent?.metrics?.sharpe_ratio} & ${m.single_agent?.metrics?.sortino_ratio} & ${m.single_agent?.metrics?.max_drawdown_pct}\\% & ${m.single_agent?.metrics?.win_rate_pct}\\% & ${m.single_agent?.metrics?.alpha}\\% \\\\
+Linear MAS & ${m.linear_mas?.metrics?.total_return_pct}\\% & ${m.linear_mas?.metrics?.sharpe_ratio} & ${m.linear_mas?.metrics?.sortino_ratio} & ${m.linear_mas?.metrics?.max_drawdown_pct}\\% & ${m.linear_mas?.metrics?.win_rate_pct}\\% & ${m.linear_mas?.metrics?.alpha}\\% \\\\
+\\textbf{Adversarial MAS (Ours)} & \\textbf{${m.adversarial_mas?.metrics?.total_return_pct}\\%} & \\textbf{${m.adversarial_mas?.metrics?.sharpe_ratio}} & \\textbf{${m.adversarial_mas?.metrics?.sortino_ratio}} & \\textbf{${m.adversarial_mas?.metrics?.max_drawdown_pct}\\%} & \\textbf{${m.adversarial_mas?.metrics?.win_rate_pct}\\%} & \\textbf{${m.adversarial_mas?.metrics?.alpha}\\%} \\\\
+\\bottomrule
+\\end{tabular}
+\\end{table}`;
+    };
+
+    const copyLatex = () => {
+        const code = generateLatex();
+        navigator.clipboard.writeText(code);
+        setCopiedLatex(true);
+        setTimeout(() => setCopiedLatex(false), 2500);
+    };
+
+    const m = results?.models || {};
+
+    return (
+        <div className="space-y-5">
+            {/* Control Bar */}
+            <div className="bn-panel p-5">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--bn-border)] pb-4 mb-4">
+                    <div>
+                        <h2 className="text-sm font-bold text-[var(--bn-text)] flex items-center gap-2">
+                            <span className="text-[#FCD535]">🔬</span> Empirical Multi-Agent Ablation Benchmarks
+                        </h2>
+                        <p className="text-xs text-[var(--bn-text-secondary)] mt-1">
+                            Evaluate 4 architectural paradigms under identical historical market conditions.
+                        </p>
+                    </div>
+
+                    <button
+                        onClick={copyLatex}
+                        disabled={!results}
+                        className={`bn-btn-secondary text-xs flex items-center gap-1.5 ${copiedLatex ? 'bg-[#0ECB81] text-black font-bold' : ''}`}
+                    >
+                        {copiedLatex ? "✓ LaTeX Copied" : "📄 Export LaTeX Table"}
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                    <div className="md:col-span-4">
+                        <label className="text-xs font-medium text-[var(--bn-text-secondary)] block mb-1">Trading Asset</label>
+                        <input
+                            type="text"
+                            value={ticker}
+                            onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                            placeholder="BTC-USD, ETH-USD, AAPL..."
+                            className="w-full px-3 py-1.5 text-xs font-mono"
+                        />
+                        <div className="flex flex-wrap gap-1 mt-2">
+                            {quickTickers.map(t => (
+                                <button
+                                    key={t}
+                                    onClick={() => { setTicker(t); runBacktest(t, period); }}
+                                    className={`bn-badge ${ticker === t ? 'active' : ''}`}
+                                >
+                                    {t}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="md:col-span-3">
+                        <label className="text-xs font-medium text-[var(--bn-text-secondary)] block mb-1">Lookback Window</label>
+                        <div className="grid grid-cols-4 gap-1">
+                            {periods.map(p => (
+                                <button
+                                    key={p}
+                                    onClick={() => { setPeriod(p); runBacktest(ticker, p); }}
+                                    className={`py-1.5 text-xs font-medium rounded border text-center transition-colors ${period === p ? 'bg-[var(--bn-primary)] text-[var(--bn-primary-text)] font-bold border-[var(--bn-primary)]' : 'border-[var(--bn-border)] text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]'}`}
+                                >
+                                    {p}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="md:col-span-3">
+                        <label className="text-xs font-medium text-[var(--bn-text-secondary)] block mb-1">Simulation Capital ($)</label>
+                        <input
+                            type="number"
+                            value={capital}
+                            onChange={(e) => setCapital(e.target.value)}
+                            className="w-full px-3 py-1.5 text-xs font-mono"
+                        />
+                    </div>
+
+                    <div className="md:col-span-2 flex items-end">
+                        <button
+                            onClick={() => runBacktest()}
+                            disabled={loading}
+                            className="w-full bn-btn-primary py-2 text-xs font-bold uppercase"
+                        >
+                            {loading ? "Simulating..." : "Run Test"}
+                        </button>
+                    </div>
+                </div>
+
+                {error && (
+                    <div className="mt-4 p-3 bg-[#F6465D] bg-opacity-10 border border-[#F6465D] rounded text-[#F6465D] text-xs">
+                        Error: {error}
+                    </div>
+                )}
+            </div>
+
+            {/* Chart Panel */}
+            <div className="bn-panel p-5">
+                <div className="flex justify-between items-center border-b border-[var(--bn-border)] pb-3 mb-4">
+                    <h3 className="text-xs font-bold text-[var(--bn-text)]">
+                        Comparative Cumulative Portfolio Returns
+                    </h3>
+                    <span className="text-xs font-mono text-[var(--bn-text-secondary)]">
+                        Asset: <strong className="text-[var(--bn-text)]">{results?.ticker || ticker}</strong> | Period: <strong className="text-[var(--bn-text)]">{results?.period || period}</strong>
+                    </span>
+                </div>
+                {loading ? (
+                    <div className="h-48 flex items-center justify-center font-sans text-xs text-[var(--bn-text-secondary)] animate-pulse">
+                        Simulating parallel execution paths over historical market candles...
+                    </div>
+                ) : (
+                    renderChart()
+                )}
+            </div>
+
+            {/* Scorecard Table */}
+            <div className="bn-panel p-5">
+                <div className="border-b border-[var(--bn-border)] pb-3 mb-4">
+                    <h3 className="text-xs font-bold text-[var(--bn-text)]">
+                        Model Performance Comparison (Academic Econometrics)
+                    </h3>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                        <thead>
+                            <tr className="border-b border-[var(--bn-border)] text-[var(--bn-text-secondary)] text-[11px]">
+                                <th className="py-2.5">Architecture</th>
+                                <th className="py-2.5">Type</th>
+                                <th className="py-2.5">Return (%)</th>
+                                <th className="py-2.5">Sharpe (Rf=4%)</th>
+                                <th className="py-2.5">Sortino</th>
+                                <th className="py-2.5">Max Drawdown</th>
+                                <th className="py-2.5">Calmar</th>
+                                <th className="py-2.5">Win Rate</th>
+                                <th className="py-2.5">Alpha</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--bn-border)]">
+                            <tr>
+                                <td className="py-3 text-[var(--bn-text)] font-medium">Benchmark (Buy & Hold)</td>
+                                <td className="py-3 text-[var(--bn-text-secondary)]">Passive Baseline</td>
+                                <td className={`py-3 font-bold ${(m.benchmark?.metrics?.total_return_pct || 0) >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                    {m.benchmark?.metrics?.total_return_pct}%
+                                </td>
+                                <td className="py-3 font-mono">{m.benchmark?.metrics?.sharpe_ratio}</td>
+                                <td className="py-3 font-mono">{m.benchmark?.metrics?.sortino_ratio}</td>
+                                <td className="py-3 font-mono text-[#F6465D]">{m.benchmark?.metrics?.max_drawdown_pct}%</td>
+                                <td className="py-3 font-mono">{m.benchmark?.metrics?.calmar_ratio}</td>
+                                <td className="py-3 font-mono">{m.benchmark?.metrics?.win_rate_pct}%</td>
+                                <td className="py-3 text-[var(--bn-text-secondary)]">---</td>
+                            </tr>
+                            <tr>
+                                <td className="py-3 text-[#FF7A45] font-medium">Single Baseline Agent</td>
+                                <td className="py-3 text-[var(--bn-text-secondary)]">Technical Heuristic</td>
+                                <td className={`py-3 font-bold ${(m.single_agent?.metrics?.total_return_pct || 0) >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                    {m.single_agent?.metrics?.total_return_pct}%
+                                </td>
+                                <td className="py-3 font-mono">{m.single_agent?.metrics?.sharpe_ratio}</td>
+                                <td className="py-3 font-mono">{m.single_agent?.metrics?.sortino_ratio}</td>
+                                <td className="py-3 font-mono text-[#F6465D]">{m.single_agent?.metrics?.max_drawdown_pct}%</td>
+                                <td className="py-3 font-mono">{m.single_agent?.metrics?.calmar_ratio}</td>
+                                <td className="py-3 font-mono">{m.single_agent?.metrics?.win_rate_pct}%</td>
+                                <td className="py-3 font-mono text-[var(--bn-primary)]">{m.single_agent?.metrics?.alpha}%</td>
+                            </tr>
+                            <tr>
+                                <td className="py-3 text-[var(--bn-primary)] font-medium">Linear Multi-Agent</td>
+                                <td className="py-3 text-[var(--bn-text-secondary)]">Sequential Pipeline</td>
+                                <td className={`py-3 font-bold ${(m.linear_mas?.metrics?.total_return_pct || 0) >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                    {m.linear_mas?.metrics?.total_return_pct}%
+                                </td>
+                                <td className="py-3 font-mono">{m.linear_mas?.metrics?.sharpe_ratio}</td>
+                                <td className="py-3 font-mono">{m.linear_mas?.metrics?.sortino_ratio}</td>
+                                <td className="py-3 font-mono text-[#F6465D]">{m.linear_mas?.metrics?.max_drawdown_pct}%</td>
+                                <td className="py-3 font-mono">{m.linear_mas?.metrics?.calmar_ratio}</td>
+                                <td className="py-3 font-mono">{m.linear_mas?.metrics?.win_rate_pct}%</td>
+                                <td className="py-3 font-mono text-[var(--bn-primary)]">{m.linear_mas?.metrics?.alpha}%</td>
+                            </tr>
+                            <tr className="bg-[var(--bn-surface)] font-semibold border-l-2 border-[#0ECB81]">
+                                <td className="py-3 text-[#0ECB81] font-bold flex items-center gap-1.5">
+                                    <span>★</span> Adversarial MAS (Ours)
+                                </td>
+                                <td className="py-3 text-[#0ECB81]">Debate + CVaR / Kelly</td>
+                                <td className={`py-3 font-extrabold ${(m.adversarial_mas?.metrics?.total_return_pct || 0) >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                    {m.adversarial_mas?.metrics?.total_return_pct}%
+                                </td>
+                                <td className="py-3 font-mono text-[#0ECB81]">{m.adversarial_mas?.metrics?.sharpe_ratio}</td>
+                                <td className="py-3 font-mono text-[#0ECB81]">{m.adversarial_mas?.metrics?.sortino_ratio}</td>
+                                <td className="py-3 font-mono text-[#0ECB81]">{m.adversarial_mas?.metrics?.max_drawdown_pct}%</td>
+                                <td className="py-3 font-mono text-[#0ECB81]">{m.adversarial_mas?.metrics?.calmar_ratio}</td>
+                                <td className="py-3 font-mono text-[#0ECB81]">{m.adversarial_mas?.metrics?.win_rate_pct}%</td>
+                                <td className="py-3 font-mono text-[#0ECB81]">+{m.adversarial_mas?.metrics?.alpha}%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Institutional Risk Metrics */}
+            {results?.asset_quant_risk && (
+                <div className="bn-panel p-5">
+                    <div className="border-b border-[var(--bn-border)] pb-3 mb-4">
+                        <h3 className="text-xs font-bold text-[var(--bn-text)]">
+                            Asset Tail Risk & Volatility Matrix
+                        </h3>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-xs font-mono">
+                        <div className="bg-[var(--bn-surface)] p-3 rounded-lg border border-[var(--bn-border)]">
+                            <span className="text-[var(--bn-text-secondary)] text-[10px] block font-sans">VaR (95%)</span>
+                            <span className="text-[var(--bn-text)] font-bold text-sm">{results.asset_quant_risk.var_95}%</span>
+                        </div>
+                        <div className="bg-[var(--bn-surface)] p-3 rounded-lg border border-[var(--bn-border)]">
+                            <span className="text-[var(--bn-text-secondary)] text-[10px] block font-sans">VaR (99%)</span>
+                            <span className="text-[#FF7A45] font-bold text-sm">{results.asset_quant_risk.var_99}%</span>
+                        </div>
+                        <div className="bg-[var(--bn-surface)] p-3 rounded-lg border border-[var(--bn-border)]">
+                            <span className="text-[var(--bn-text-secondary)] text-[10px] block font-sans">CVaR Tail Loss (95%)</span>
+                            <span className="text-[#F6465D] font-bold text-sm">{results.asset_quant_risk.cvar_95}%</span>
+                        </div>
+                        <div className="bg-[var(--bn-surface)] p-3 rounded-lg border border-[var(--bn-border)]">
+                            <span className="text-[var(--bn-text-secondary)] text-[10px] block font-sans">CVaR Tail Loss (99%)</span>
+                            <span className="text-[#F6465D] font-bold text-sm">{results.asset_quant_risk.cvar_99}%</span>
+                        </div>
+                        <div className="bg-[var(--bn-surface)] p-3 rounded-lg border border-[var(--bn-border)]">
+                            <span className="text-[var(--bn-text-secondary)] text-[10px] block font-sans">Kelly Fraction (f*)</span>
+                            <span className="text-[#0ECB81] font-bold text-sm">{results.asset_quant_risk.kelly_recommended_pct}%</span>
+                        </div>
+                        <div className="bg-[var(--bn-surface)] p-3 rounded-lg border border-[var(--bn-border)]">
+                            <span className="text-[var(--bn-text-secondary)] text-[10px] block font-sans">Annualized Volatility</span>
+                            <span className="text-[var(--bn-primary)] font-bold text-sm">{results.asset_quant_risk.volatility_annualized}%</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ==========================================================================
+// 4. MAIN TRADING DASHBOARD
 // ==========================================================================
 function Dashboard({ operator, onSignOut }) {
-    // Strategy configs matching model schemas
     const strategyOptions = [
-        { key: 'A', interval: '15m', period: '7d', name: 'Intraday Scalp' },
-        { key: 'B', interval: '1h', period: '30d', name: 'Intraday Swing' },
-        { key: 'C', interval: '4h', period: '60d', name: 'Medium Swing' },
-        { key: 'D', interval: '1d', period: '180d', name: 'Macro Position' }
+        { key: 'A', interval: '15m', period: '7d', name: 'Scalp (15m)', desc: '0.75% / 1.50% Risk' },
+        { key: 'B', interval: '1h', period: '30d', name: 'Swing (1h)', desc: '1.00% / 2.00% Risk' },
+        { key: 'C', interval: '4h', period: '60d', name: 'Swing (4h)', desc: '2.00% / 3.00% Risk' },
+        { key: 'D', interval: '1d', period: '180d', name: 'Position (1D)', desc: '2.50% / 4.00% Risk' }
     ];
 
     const [activeStrat, setActiveStrat] = useState(strategyOptions[0]);
+    const [activeTab, setActiveTab] = useState("desk"); // "desk" | "research"
+    const [theme, setTheme] = useState(() => localStorage.getItem("bn_theme") || "dark");
+    const [showProfileMenu, setShowProfileMenu] = useState(false);
+
     const [ticker, setTicker] = useState("BTC-USD");
+    const [searchInput, setSearchInput] = useState("BTC/USDT");
+    const [showSuggestions, setShowSuggestions] = useState(false);
     const [priceData, setPriceData] = useState(null);
     const [isRunning, setIsRunning] = useState(false);
-    const [logs, setLogs] = useState("[Telemetry Logs ready]\nOperator validated. Lock established.\n---------------------------------------\n");
+    const [logs, setLogs] = useState("[System Ready] Multi-Agent Trading Engine online.\nSelect asset and click 'Analyze & Generate Signal' to begin.\n");
     const [decision, setDecision] = useState(null);
-    const [audits, setAudits] = useState([]);
-    
-    // Telemetry clocks
+    const [trades, setTrades] = useState([]);
     const [utcTime, setUtcTime] = useState("");
 
+    const profileRef = useRef(null);
+    const searchContainerRef = useRef(null);
+
+    // Synchronize Theme attribute
+    useEffect(() => {
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("bn_theme", theme);
+    }, [theme]);
+
+    const toggleTheme = () => {
+        setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+    };
+
+    // Close profile & search dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (profileRef.current && !profileRef.current.contains(event.target)) {
+                setShowProfileMenu(false);
+            }
+            if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+                setShowSuggestions(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    // Telemetry clocks
     useEffect(() => {
         const updateClock = () => {
             const now = new Date();
@@ -454,12 +1527,13 @@ function Dashboard({ operator, onSignOut }) {
         return () => clearInterval(interval);
     }, []);
 
-    // Fetch live yfinance chart data
+    // Fetch live market candle data
     const fetchChart = async (customTicker = ticker, customStrat = activeStrat) => {
-        if (!customTicker.trim()) return;
+        const raw = customTicker || ticker;
+        if (!raw || !raw.trim()) return;
         try {
-            const cleanTicker = customTicker.trim().toUpperCase();
-            const response = await fetch(`/api/price-chart?ticker=${cleanTicker}&period=${customStrat.period}&interval=${customStrat.interval}`);
+            const cleanTicker = resolveTickerInput(raw);
+            const response = await fetch(`/api/price-chart?ticker=${encodeURIComponent(cleanTicker)}&period=${customStrat.period}&interval=${customStrat.interval}`);
             if (!response.ok) throw new Error("Fetch failed");
             const data = await response.json();
             setPriceData(data);
@@ -468,65 +1542,91 @@ function Dashboard({ operator, onSignOut }) {
         }
     };
 
-    // Load initial chart and history
-    useEffect(() => {
-        fetchChart();
-        fetchHistory();
-    }, [activeStrat]);
+    // Filter asset universe for autocomplete dropdown
+    const filteredSuggestions = ASSET_UNIVERSE.filter(item => {
+        if (!searchInput || !searchInput.trim()) return true;
+        const q = searchInput.trim().toLowerCase();
+        return (
+            item.symbol.toLowerCase().includes(q) ||
+            item.display.toLowerCase().includes(q) ||
+            item.name.toLowerCase().includes(q) ||
+            item.keywords.some(k => k.toLowerCase().includes(q))
+        );
+    }).slice(0, 8);
 
-    // Poll price data every 10 seconds
-    useEffect(() => {
-        const poll = setInterval(() => {
-            fetchChart();
-        }, 10000);
-        return () => clearInterval(poll);
-    }, [ticker, activeStrat]);
+    const handleSelectSuggestion = (item) => {
+        setTicker(item.symbol);
+        setSearchInput(item.display);
+        setShowSuggestions(false);
+        fetchChart(item.symbol, activeStrat);
+    };
 
-    // Retrieve Audit History records
-    const fetchHistory = async () => {
+    const handleSearchSubmit = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        const resolved = resolveTickerInput(searchInput);
+        setTicker(resolved);
+        const item = ASSET_UNIVERSE.find(a => a.symbol === resolved);
+        if (item) setSearchInput(item.display);
+        setShowSuggestions(false);
+        fetchChart(resolved, activeStrat);
+    };
+
+    const handleQuickSelect = (selTicker) => {
+        const resolved = resolveTickerInput(selTicker);
+        setTicker(resolved);
+        const item = ASSET_UNIVERSE.find(a => a.symbol === resolved);
+        setSearchInput(item ? item.display : resolved);
+        setShowSuggestions(false);
+        fetchChart(resolved, activeStrat);
+    };
+
+    // Retrieve user-scoped Trade History (Only for this specific user!)
+    const fetchUserTrades = async () => {
         try {
             const token = sessionStorage.getItem("access_token");
-            const res = await fetch("/api/history", {
+            const emailParam = operator?.email ? `?user_email=${encodeURIComponent(operator.email)}` : "";
+            const res = await fetch(`/api/history${emailParam}`, {
                 headers: token ? { "Authorization": `Bearer ${token}` } : {}
             });
             if (res.ok) {
                 const data = await res.json();
-                setAudits(data);
+                setTrades(data);
             }
         } catch (e) {
-            console.error("Failed to fetch ledger logs:", e);
+            console.error("Failed to fetch trade ledger:", e);
         }
     };
 
-    const handleQuickSelect = (selTicker) => {
-        setTicker(selTicker);
-        fetchChart(selTicker, activeStrat);
-    };
+    useEffect(() => {
+        fetchChart();
+        fetchUserTrades();
+    }, [activeStrat]);
+
+    useEffect(() => {
+        const poll = setInterval(() => {
+            fetchChart();
+        }, 15000);
+        return () => clearInterval(poll);
+    }, [ticker, activeStrat]);
 
     const handleExecute = async () => {
-        if (!ticker.trim()) {
-            alert("Provide a target security ticker symbol before execution.");
+        const rawTarget = ticker || searchInput;
+        if (!rawTarget || !rawTarget.trim()) {
+            alert("Please enter a valid asset symbol or company name before analyzing.");
             return;
         }
 
-        const targetTicker = ticker.trim().toUpperCase();
-
-        // Crypto formatting check
-        const cryptoKeywords = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'LTC', 'LINK', 'UNI', 'AVAX'];
-        if (cryptoKeywords.includes(targetTicker)) {
-            alert(`Polite Correction: Cryptocurrency assets must be explicitly mapped with their base currency pair. Please use '${targetTicker}-USD' instead of '${targetTicker}'.`);
-            return;
-        }
+        const targetTicker = resolveTickerInput(rawTarget);
+        setTicker(targetTicker);
 
         setIsRunning(true);
         setDecision(null);
         
-        let runLogs = `[Telemetry Trace initialized] Booting Master Desk Router...\n`;
-        runLogs += `Asset Locked: '${targetTicker}' | Strategy Target: '${activeStrat.name}'\n`;
-        runLogs += `Accessing Neon PostgreSQL connection pooler and launching AI analyst...\n`;
-        runLogs += `Evaluating moving averages, crossovers, MACD, and RSI levels...\n`;
-        runLogs += `Requesting compliance check from Risk Manager Guardrail...\n`;
-        runLogs += `Please stand by. Model reasoning takes 25-40 seconds...\n`;
+        let runLogs = `[Order Analysis Initialized] Asset: ${targetTicker} | Timeframe: ${activeStrat.interval}\n`;
+        runLogs += `Fetching live market candle indicators from data feed...\n`;
+        runLogs += `Running Adversarial Bull Advocate vs. Bear Skeptic debate...\n`;
+        runLogs += `Calculating Value-at-Risk (VaR 95%), Tail Loss (CVaR), and Kelly allocation...\n`;
+        runLogs += `Auditing trade safety against compliance rules...\n`;
         setLogs(runLogs);
 
         const payload = {
@@ -552,445 +1652,623 @@ function Dashboard({ operator, onSignOut }) {
 
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.detail || "Agent execution failed.");
+                throw new Error(data.detail || "Trade analysis failed.");
             }
 
             setDecision(data);
             
-            // Append formatted completion logs
             runLogs += `-------------------------------------------------------\n`;
-            runLogs += `QUANT DESK SIGNAL RETURNED:\n`;
-            runLogs += `Asset Ticker     : ${data.ticker}\n`;
-            runLogs += `Strategy Action  : ${data.action}\n`;
+            runLogs += `SIGNAL GENERATED:\n`;
+            runLogs += `Asset Pair       : ${data.ticker}\n`;
+            runLogs += `Signal Action    : ${data.action}\n`;
             runLogs += `Risk Verdict     : ${data.risk_status}\n`;
-            runLogs += `Budget Allocation: ${data.budget_allocation}\n`;
-            runLogs += `Position Entry   : ${data.ENTRY_PRICE > 0 ? '$' + data.ENTRY_PRICE.toFixed(2) : 'N/A'}\n`;
-            runLogs += `Take Profit Target: ${data.TAKE_PROFIT > 0 ? '$' + data.TAKE_PROFIT.toFixed(2) : 'N/A'}\n`;
-            runLogs += `Stop Loss Target  : ${data.STOP_LOSS > 0 ? '$' + data.STOP_LOSS.toFixed(2) : 'N/A'}\n`;
-            runLogs += `Justification    : ${data.justification}\n`;
+            runLogs += `Capital Budget   : ${data.budget_allocation}\n`;
+            runLogs += `Entry Price      : ${data.ENTRY_PRICE > 0 ? '$' + data.ENTRY_PRICE.toFixed(2) : 'N/A'}\n`;
+            runLogs += `Take Profit (TP) : ${data.TAKE_PROFIT > 0 ? '$' + data.TAKE_PROFIT.toFixed(2) : 'N/A'}\n`;
+            runLogs += `Stop Loss (SL)   : ${data.STOP_LOSS > 0 ? '$' + data.STOP_LOSS.toFixed(2) : 'N/A'}\n`;
+            runLogs += `Reasoning        : ${data.justification}\n`;
             setLogs(runLogs);
 
-            // Reload audits
-            fetchHistory();
-            
-            // Reload price chart to update TP/SL wicks instantly
+            fetchUserTrades();
             fetchChart(targetTicker, activeStrat);
 
         } catch (e) {
-            runLogs += `\n[Error] Pipeline crashed: ${e.message}\n`;
+            runLogs += `\n[Error] Pipeline execution error: ${e.message}\n`;
             setLogs(runLogs);
-            alert("Error running Multi-Agent Execution. See trace logs for details.");
+            alert("Analysis failed. Please check logs for details.");
         } finally {
             setIsRunning(false);
         }
     };
 
-    // Derived statistics calculations
-    const totalRuns = audits.length;
-    const approvedRuns = audits.filter(a => a.risk_status === 'APPROVED').length;
-    const successRate = totalRuns > 0 ? Math.round((approvedRuns / totalRuns) * 100) : 100;
+    const quickBadges = [
+        { label: "BTC/USDT", symbol: "BTC-USD" },
+        { label: "ETH/USDT", symbol: "ETH-USD" },
+        { label: "SOL/USDT", symbol: "SOL-USD" },
+        { label: "AAPL", symbol: "AAPL" },
+        { label: "NVDA", symbol: "NVDA" },
+        { label: "GOLD", symbol: "GC=F" },
+        { label: "CRUDE OIL", symbol: "CL=F" }
+    ];
+
+    const currentPrice = priceData?.candles && priceData.candles.length > 0 
+        ? priceData.candles[priceData.candles.length - 1].close 
+        : 0.0;
 
     return (
-        <div className="min-h-screen flex flex-col justify-between p-6 bg-[#1A1A1A]">
+        <div className="min-h-screen flex flex-col justify-between p-4 md:p-6 bg-[var(--bn-bg)]">
             <div>
-                {/* 1. TOP NAVIGATION BAR */}
-                <header className="leetcode-panel p-4 rounded mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                        <h1 className="text-base font-extrabold uppercase tracking-widest text-[#E4E6EB]">
-                            Automated <span className="text-[#3DD9F7]">Trading Desk</span>
-                        </h1>
-                        <span className="hidden sm:inline text-[#3F3F3F]">|</span>
-                        <div className="text-[11px] font-mono text-[#A0A4A8] tracking-wider">
-                            Framework: <span className="text-[#3DD9F7] font-semibold">OpenAI Agents SDK</span> &nbsp;•&nbsp; Database: <span className="text-[#29B86F] font-semibold">Neon PostgreSQL</span>
+                {/* 1. TOP NAVBAR */}
+                <header className="bn-panel px-4 py-3 mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm">
+                    {/* Brand & Tabs */}
+                    <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-[#FCD535] flex items-center justify-center shadow-md shadow-[#FCD535]/30 ring-2 ring-[#FCD535]/40 flex-shrink-0">
+                                <svg className="w-4.5 h-4.5 text-black fill-current stroke-black stroke-[0.5]" viewBox="0 0 24 24">
+                                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                                </svg>
+                            </div>
+                            <div className="flex items-baseline gap-1.5">
+                                <span className="font-black text-sm tracking-wide text-[var(--bn-text)] uppercase">
+                                    FIN<span className="text-[#FCD535]">AGENTRA</span>
+                                </span>
+                                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#FCD535] bg-[#FCD535]/15 px-1.5 py-0.5 rounded border border-[#FCD535]/30">
+                                    TERMINAL
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="hidden sm:inline-block h-5 w-[1px] bg-[var(--bn-border)]"></div>
+
+                        {/* Navigation Tabs */}
+                        <div className="flex items-center gap-1 bg-[var(--bn-surface)] p-1 rounded-lg border border-[var(--bn-border)]">
+                            <button
+                                onClick={() => setActiveTab("desk")}
+                                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${activeTab === 'desk' ? 'bg-[#FCD535] text-[#181A20] shadow' : 'text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]'}`}
+                            >
+                                ⚡ Trade
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("research")}
+                                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${activeTab === 'research' ? 'bg-[#FCD535] text-[#181A20] shadow' : 'text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]'}`}
+                            >
+                                🔬 Research & Backtest
+                            </button>
                         </div>
                     </div>
-                    
-                    <div className="flex flex-col sm:flex-row items-center gap-3">
-                        <div className="font-mono text-xs text-[#3DD9F7] tracking-wider font-medium bg-[#1A1A1A] px-3 py-1 rounded border border-[#3F3F3F]">
-                            {utcTime || "SYSTEM TIME: UTC"}
+
+                    {/* Right Controls: Market Status, UTC Clock, Theme Toggle, Profile Menu */}
+                    <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bn-surface)] border border-[var(--bn-border)] text-[11px] font-mono text-[#0ECB81]">
+                            <span className="w-2 h-2 rounded-full bg-[#0ECB81] animate-pulse"></span>
+                            Live
                         </div>
-                        
-                        <div className="flex items-center space-x-2 border border-[#3F3F3F] px-3 py-1 rounded bg-[#1A1A1A]">
-                            <span className="w-2 h-2 bg-[#29B86F] rounded-full"></span>
-                            <span className="font-mono text-[10px] tracking-wide text-[#29B86F] uppercase">
-                                Operator Connected
-                            </span>
+
+                        <div className="text-[11px] font-mono text-[var(--bn-text-secondary)] hidden md:block">
+                            {utcTime}
+                        </div>
+
+                        {/* Theme Toggle Button */}
+                        <button
+                            onClick={toggleTheme}
+                            className="p-1.5 rounded-lg bg-[var(--bn-surface)] border border-[var(--bn-border)] text-[var(--bn-text-secondary)] hover:text-[#FCD535] transition-all text-sm flex items-center justify-center w-8 h-8"
+                            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+                        >
+                            {theme === 'dark' ? '☀️' : '🌙'}
+                        </button>
+
+                        {/* Profile Dropdown in Top-Right Corner */}
+                        <div className="relative" ref={profileRef}>
+                            <button
+                                onClick={() => setShowProfileMenu(prev => !prev)}
+                                className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--bn-surface)] border border-[var(--bn-border)] hover:border-[#FCD535] transition-all cursor-pointer"
+                            >
+                                <div className="w-6 h-6 rounded-full bg-[#FCD535] text-[#181A20] font-bold text-xs flex items-center justify-center">
+                                    {(operator?.full_name || "U")[0].toUpperCase()}
+                                </div>
+                                <span className="text-xs font-semibold text-[var(--bn-text)] max-w-[110px] truncate hidden sm:inline">
+                                    {operator?.full_name || "Account"}
+                                </span>
+                                <span className="text-[10px] text-[var(--bn-text-secondary)]">▾</span>
+                            </button>
+
+                            {showProfileMenu && (
+                                <div className="absolute right-0 mt-2 w-64 bg-[var(--bn-card)] border border-[var(--bn-border)] rounded-lg shadow-2xl p-4 z-50 text-xs font-sans space-y-3">
+                                    <div className="border-b border-[var(--bn-border)] pb-2.5">
+                                        <div className="font-bold text-[var(--bn-text)] text-sm">{operator?.full_name}</div>
+                                        <div className="text-[var(--bn-text-secondary)] text-[11px] truncate mt-0.5">{operator?.email}</div>
+                                        <div className="text-[var(--bn-text-secondary)] text-[11px] mt-0.5">{operator?.mobile_number}</div>
+                                    </div>
+                                    <div className="flex justify-between items-center text-[11px]">
+                                        <span className="text-[var(--bn-text-secondary)]">VIP Level:</span>
+                                        <span className="text-[#FCD535] font-semibold bg-[#FCD535] bg-opacity-10 px-1.5 py-0.5 rounded">Regular (VIP 0)</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-[11px]">
+                                        <span className="text-[var(--bn-text-secondary)]">Status:</span>
+                                        <span className="text-[#0ECB81] font-semibold">Verified</span>
+                                    </div>
+                                    <button
+                                        onClick={onSignOut}
+                                        className="w-full mt-2 py-1.5 rounded bg-[#F6465D] bg-opacity-10 hover:bg-opacity-20 text-[#F6465D] font-semibold transition-all text-center"
+                                    >
+                                        Log Out
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </header>
 
-                {/* 3-COLUMN LAYOUT GRID */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                    
-                    {/* LEFT COLUMN: SIDEBAR (3 Columns) */}
-                    <aside className="col-span-1 lg:col-span-3 flex flex-col gap-6">
-                        
-                        {/* Operator Profile */}
-                        <div className="leetcode-panel p-5 rounded">
-                            <div className="border-b border-[#3F3F3F] pb-3 mb-4 flex justify-between items-center">
-                                <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-[#3DD9F7]">
-                                    Operator Profile
-                                </h3>
-                                <button 
-                                    onClick={onSignOut}
-                                    className="text-[10px] font-mono text-[#EF4743] hover:underline"
-                                >
-                                    Sign Out
-                                </button>
-                            </div>
-                            <div className="space-y-3 font-mono text-[11px]">
-                                <div>
-                                    <span className="text-[#A0A4A8] block">FULL NAME</span>
-                                    <span className="text-white font-medium">{operator.full_name}</span>
-                                </div>
-                                <div>
-                                    <span className="text-[#A0A4A8] block">EMAIL GATEWAY</span>
-                                    <span className="text-white truncate block">{operator.email}</span>
-                                </div>
-                                <div>
-                                    <span className="text-[#A0A4A8] block">VERIFICATION PHONE</span>
-                                    <span className="text-white">{operator.verified_phone || operator.mobile_number}</span>
-                                </div>
-                            </div>
-                        </div>
+                {activeTab === "research" ? (
+                    <ResearchLabView operator={operator} isDark={theme === 'dark'} />
+                ) : (
+                    <div className="space-y-4">
+                        {/* 2. MARKET ASSET BAR & SEARCH DOCK */}
+                        <div className="bn-panel p-3.5 flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-sm">
+                            <div className="flex flex-col md:flex-row md:items-center gap-3.5 flex-grow">
+                                {/* Search Input Container with Dropdown */}
+                                <div ref={searchContainerRef} className="relative flex items-center gap-2">
+                                    <div className="relative flex items-center">
+                                        {/* Search Magnifying Glass Icon */}
+                                        <span className="absolute left-3 text-[var(--bn-text-secondary)] pointer-events-none">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-4.35-4.35m1.85-5.65a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                            </svg>
+                                        </span>
 
-                        {/* Portfolio Stats */}
-                        <div className="leetcode-panel p-5 rounded">
-                            <div className="border-b border-[#3F3F3F] pb-3 mb-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-[#3DD9F7]">
-                                    Portfolio Ledger
-                                </h3>
-                            </div>
-                            
-                            <div className="space-y-4 font-mono text-[11px]">
-                                <div className="bg-[#1A1A1A] p-3 rounded border border-[#3F3F3F]">
-                                    <span className="text-[#A0A4A8] text-[9px] block">TOTAL ACCOUNT CAPITAL</span>
-                                    <span className="text-base font-bold text-white block mt-0.5">$10,000.00 USDT</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div className="bg-[#1A1A1A] p-2.5 rounded border border-[#3F3F3F]">
-                                        <span className="text-[#A0A4A8] text-[9px] block">TOTAL RUNS</span>
-                                        <span className="text-sm font-bold text-white mt-0.5 block">{totalRuns}</span>
-                                    </div>
-                                    <div className="bg-[#1A1A1A] p-2.5 rounded border border-[#3F3F3F]">
-                                        <span className="text-[#A0A4A8] text-[9px] block">AUDIT COMPLY</span>
-                                        <span className="text-sm font-bold text-[#29B86F] mt-0.5 block">{successRate}%</span>
-                                    </div>
-                                </div>
-                                
-                                <div className="pt-2 border-t border-[#3F3F3F] text-[10px] text-[#A0A4A8] leading-relaxed">
-                                    Risk rules strictly block allocation budgets if strategies fall below setup baseline thresholds.
-                                </div>
-                            </div>
-                        </div>
-
-                    </aside>
-
-                    {/* CENTER COLUMN: TRADING DASHBOARD (6 Columns) */}
-                    <main className="col-span-1 lg:col-span-6 flex flex-col gap-6">
-                        
-                        {/* Search & Quick-Select Asset Bar */}
-                        <div className="leetcode-panel p-5 rounded">
-                            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-4">
-                                <div className="w-full sm:w-1/2">
-                                    <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider mb-1">
-                                        Target Asset Ticker
-                                    </label>
-                                    <div className="flex gap-2">
-                                        <input 
-                                            type="text" 
-                                            value={ticker}
-                                            onChange={(e) => setTicker(e.target.value)}
-                                            className="w-full bg-[#2D2D2D] border border-[#3F3F3F] rounded px-3 py-2 text-xs text-white focus:outline-none"
-                                            placeholder="BTC-USD, AAPL, CL=F (Oil), GC=F (Gold)"
+                                        <input
+                                            type="text"
+                                            value={searchInput}
+                                            onFocus={() => setShowSuggestions(true)}
+                                            onChange={(e) => {
+                                                setSearchInput(e.target.value);
+                                                setShowSuggestions(true);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    handleSearchSubmit();
+                                                } else if (e.key === 'Escape') {
+                                                    setShowSuggestions(false);
+                                                }
+                                            }}
+                                            placeholder="Search asset, e.g. Bitcoin, AAPL, Gold..."
+                                            className="pl-9 pr-8 py-2 text-xs font-semibold w-64 sm:w-80 md:w-96 rounded-lg bg-[var(--bn-surface)] border border-[var(--bn-border)] focus:border-[#FCD535] focus:outline-none focus:ring-2 focus:ring-[#FCD535]/30 transition-all text-[var(--bn-text)] placeholder-[var(--bn-text-secondary)]"
                                         />
-                                        <button 
-                                            onClick={() => fetchChart(ticker, activeStrat)}
-                                            className="bg-[#3DD9F7] hover:bg-opacity-90 text-[#1A1A1A] px-3 font-mono font-bold text-xs rounded"
-                                        >
-                                            LOAD
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="w-full sm:w-1/2">
-                                    <span className="block text-[10px] font-mono text-[#A0A4A8] uppercase tracking-wider mb-1.5 font-semibold">
-                                        Multi-Asset Quick Selects (Crypto, Stocks, Commodities)
-                                    </span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {['BTC-USD', 'ETH-USD', 'AAPL', 'NVDA', 'CL=F', 'GC=F'].map(tick => (
-                                            <button 
-                                                key={tick}
-                                                onClick={() => handleQuickSelect(tick)}
-                                                className={`asset-badge ${ticker.toUpperCase().trim() === tick ? 'border-[#3DD9F7] text-white bg-opacity-10 bg-[#3DD9F7]' : ''}`}
-                                                title={tick === 'CL=F' ? 'Crude Oil Futures' : tick === 'GC=F' ? 'Gold Futures' : tick}
+
+                                        {/* Clear Button */}
+                                        {searchInput && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSearchInput("");
+                                                    setShowSuggestions(true);
+                                                }}
+                                                className="absolute right-2.5 text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)] p-0.5 rounded text-xs transition-colors"
+                                                title="Clear search"
                                             >
-                                                {tick === 'CL=F' ? 'CL=F (OIL)' : tick === 'GC=F' ? 'GC=F (GOLD)' : tick}
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Prominent High-Contrast Search Action Button */}
+                                    <button
+                                        onClick={handleSearchSubmit}
+                                        className="px-4 py-2 text-xs font-bold rounded-lg bg-[#FCD535] hover:bg-[#F0B90B] text-black shadow-sm transition-all flex items-center gap-1.5 active:scale-95 whitespace-nowrap cursor-pointer border border-[#FCD535]"
+                                        title="Search and load asset chart"
+                                    >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-4.35-4.35m1.85-5.65a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                        <span>Search</span>
+                                    </button>
+
+                                    {/* TradingView-Style Autocomplete Dropdown */}
+                                    {showSuggestions && (
+                                        <div className="absolute left-0 top-full mt-1.5 w-full sm:w-96 max-h-80 overflow-y-auto rounded-lg bg-[var(--bn-card)] border border-[var(--bn-border)] shadow-2xl z-50 py-1 divide-y divide-[var(--bn-border)]">
+                                            <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-semibold text-[var(--bn-text-secondary)] flex justify-between items-center bg-[var(--bn-surface)]">
+                                                <span>Trading Directory</span>
+                                                <span>{filteredSuggestions.length} Matches</span>
+                                            </div>
+                                            {filteredSuggestions.length > 0 ? (
+                                                filteredSuggestions.map((item) => (
+                                                    <div
+                                                        key={item.symbol}
+                                                        onMouseDown={() => handleSelectSuggestion(item)}
+                                                        className={`px-3 py-2 hover:bg-[var(--bn-surface-hover)] cursor-pointer flex items-center justify-between transition-colors ${ticker === item.symbol ? 'bg-[var(--bn-surface-hover)]' : ''}`}
+                                                    >
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <span className="font-mono font-bold text-xs text-[var(--bn-text)]">
+                                                                {item.display}
+                                                            </span>
+                                                            <span className="text-xs text-[var(--bn-text-secondary)] truncate">
+                                                                {item.name}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                            <span className="text-[10px] font-mono text-[var(--bn-text-secondary)] hidden sm:inline">
+                                                                {item.symbol}
+                                                            </span>
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                                                item.category === 'Crypto' ? 'bg-[#FCD535]/15 text-[#FCD535]' :
+                                                                item.category === 'Stock' ? 'bg-[#3861FB]/15 text-[#3861FB]' :
+                                                                item.category === 'Commodity' ? 'bg-[#0ECB81]/15 text-[#0ECB81]' :
+                                                                'bg-purple-500/15 text-purple-400'
+                                                            }`}>
+                                                                {item.category}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="px-3 py-3 text-xs text-[var(--bn-text-secondary)] text-center">
+                                                    Press Search to query "{searchInput}"
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="hidden md:inline-block h-6 w-[1px] bg-[var(--bn-border)]"></div>
+
+                                {/* Trending Watchlist Badges */}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[11px] font-semibold text-[var(--bn-text-secondary)] mr-1 flex items-center gap-1">
+                                        <span className="text-[#FCD535]">★</span> Trending:
+                                    </span>
+                                    {quickBadges.map(b => (
+                                        <button
+                                            key={b.symbol}
+                                            onClick={() => handleQuickSelect(b.symbol)}
+                                            className={`bn-badge ${ticker === b.symbol ? 'active font-bold' : ''}`}
+                                        >
+                                            {b.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Right Column: Live Market Ticker Stats Box (Isolated Container) */}
+                            <div className="flex flex-wrap items-center gap-4 text-xs font-mono bg-[var(--bn-surface)] px-4 py-2.5 rounded-lg border border-[var(--bn-border)] flex-shrink-0">
+                                <div>
+                                    <span className="text-[10px] text-[var(--bn-text-secondary)] block font-sans">Last Price</span>
+                                    <span className={`font-bold text-sm ${((priceData?.price_change_pct ?? priceData?.delta) || 0) >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                        ${currentPrice > 0 ? currentPrice.toFixed(2) : "0.00"}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] text-[var(--bn-text-secondary)] block font-sans">24h Change</span>
+                                    <span className={`font-semibold ${((priceData?.price_change_pct ?? priceData?.delta) || 0) >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                        {(() => {
+                                            const pct = priceData?.price_change_pct !== undefined ? priceData.price_change_pct : priceData?.delta;
+                                            if (pct === undefined || pct === null) return "0.00%";
+                                            return pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
+                                        })()}
+                                    </span>
+                                </div>
+                                <div className="hidden sm:block">
+                                    <span className="text-[10px] text-[var(--bn-text-secondary)] block font-sans">24h High</span>
+                                    <span className="text-[var(--bn-text)] font-medium">
+                                        ${(priceData?.high || priceData?.high_24h) ? (priceData?.high || priceData?.high_24h).toFixed(2) : "0.00"}
+                                    </span>
+                                </div>
+                                <div className="hidden sm:block">
+                                    <span className="text-[10px] text-[var(--bn-text-secondary)] block font-sans">24h Low</span>
+                                    <span className="text-[var(--bn-text)] font-medium">
+                                        ${(priceData?.low || priceData?.low_24h) ? (priceData?.low || priceData?.low_24h).toFixed(2) : "0.00"}
+                                    </span>
+                                </div>
+                                <div className="hidden md:block">
+                                    <span className="text-[10px] text-[var(--bn-text-secondary)] block font-sans">Volume</span>
+                                    <span className="text-[var(--bn-text-secondary)]">
+                                        {priceData?.volume ? priceData.volume.toLocaleString() : "0"}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3. TRADING MAIN GRID (8 / 4 Split) */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                            
+                            {/* LEFT AREA: CHART & ORDER PLACEMENT (8 Columns) */}
+                            <div className="lg:col-span-8 space-y-4">
+                                {/* Timeframe Selection Bar */}
+                                <div className="bn-panel p-2.5 flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-semibold text-[var(--bn-text-secondary)] mr-1">Timeframe:</span>
+                                        {strategyOptions.map(strat => (
+                                            <button
+                                                key={strat.key}
+                                                onClick={() => setActiveStrat(strat)}
+                                                className={`px-3 py-1 rounded text-xs font-semibold transition-all ${activeStrat.key === strat.key ? 'bg-[var(--bn-surface)] text-[var(--bn-primary)] border border-[var(--bn-primary)] shadow-sm' : 'text-[var(--bn-text-secondary)] hover:text-[var(--bn-text)]'}`}
+                                            >
+                                                {strat.name}
                                             </button>
                                         ))}
                                     </div>
-                                </div>
-                            </div>
-                            
-                            {/* Live Price Display Bar */}
-                            {priceData && (
-                                <div className="mt-3 pt-3 border-t border-[#3F3F3F] flex flex-wrap gap-4 justify-between items-center text-xs font-mono">
-                                    <div>
-                                        <span className="text-[#A0A4A8] text-[9px] block">LIVE PRICE</span>
-                                        <span className="text-base font-bold text-white">${priceData.current_price.toFixed(2)}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[#A0A4A8] text-[9px] block">24H VARIANCE</span>
-                                        <span className={`text-xs font-bold block ${priceData.price_change_pct >= 0 ? 'text-[#29B86F]' : 'text-[#EF4743]'}`}>
-                                            {priceData.price_change_pct >= 0 ? '+' : ''}{priceData.price_change_pct.toFixed(2)}%
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[#A0A4A8] text-[9px] block">24H HIGH / LOW</span>
-                                        <span className="text-white block">${priceData.high.toFixed(2)} / ${priceData.low.toFixed(2)}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[#A0A4A8] text-[9px] block">VOLUME</span>
-                                        <span className="text-white block">{priceData.volume.toLocaleString()}</span>
+                                    <div className="text-[11px] font-mono text-[var(--bn-text-secondary)] hidden sm:block">
+                                        Risk Bracket: <strong className="text-[var(--bn-primary)]">{activeStrat.desc}</strong>
                                     </div>
                                 </div>
-                            )}
-                        </div>
 
-                        {/* SVG Candlestick Chart */}
-                        <CandlestickChart 
-                            candles={priceData ? priceData.candles : []} 
-                            decision={decision} 
-                            ticker={ticker.toUpperCase().trim()} 
-                            strategyName={activeStrat.interval}
-                        />
+                                {/* Candlestick Chart */}
+                                <CandlestickChart
+                                    candles={priceData?.candles}
+                                    decision={decision}
+                                    ticker={ticker}
+                                    strategyName={activeStrat.interval}
+                                    isDark={theme === 'dark'}
+                                />
 
-                        {/* Strategy selectors */}
-                        <div className="leetcode-panel p-5 rounded">
-                            <label className="block text-[10px] font-mono text-[#3DD9F7] uppercase tracking-wider mb-2 font-semibold">
-                                Lookback Calculation Strategy
-                            </label>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                {strategyOptions.map(opt => (
-                                    <button 
-                                        key={opt.key}
-                                        onClick={() => setActiveStrat(opt)}
-                                        className={`strategy-card p-2 rounded text-center text-[10px] font-mono flex flex-col justify-between h-[54px] ${activeStrat.key === opt.key ? 'active' : ''}`}
+                                {/* Order & Signal Execution Card */}
+                                <div className="bn-panel p-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--bn-border)] pb-3 mb-3">
+                                        <div className="flex items-center gap-3">
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--bn-text)]">
+                                                Trade Execution
+                                            </h3>
+                                            <span className="text-[11px] text-[var(--bn-text-secondary)]">
+                                                Balance: <strong className="text-[#0ECB81] font-mono">$10,000.00 USDT</strong>
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-[var(--bn-text-secondary)] font-mono">
+                                            Model: <strong className="text-[var(--bn-text)]">Adversarial Consensus + CVaR</strong>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                                        <div className="bg-[var(--bn-surface)] p-2.5 rounded border border-[var(--bn-border)] text-xs">
+                                            <span className="text-[var(--bn-text-secondary)] text-[10px] block">Selected Asset</span>
+                                            <span className="font-bold text-[var(--bn-text)] font-mono">{ticker}</span>
+                                        </div>
+                                        <div className="bg-[var(--bn-surface)] p-2.5 rounded border border-[var(--bn-border)] text-xs">
+                                            <span className="text-[var(--bn-text-secondary)] text-[10px] block">Execution Timeframe</span>
+                                            <span className="font-bold text-[var(--bn-text)] font-mono">{activeStrat.name} ({activeStrat.interval})</span>
+                                        </div>
+                                        <div className="bg-[var(--bn-surface)] p-2.5 rounded border border-[var(--bn-border)] text-xs">
+                                            <span className="text-[var(--bn-text-secondary)] text-[10px] block">Dynamic Risk Cap</span>
+                                            <span className="font-bold text-[#FCD535] font-mono">{activeStrat.desc}</span>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={handleExecute}
+                                        disabled={isRunning}
+                                        className="w-full bn-btn-primary py-3 text-sm font-bold uppercase tracking-wider shadow-lg flex items-center justify-center gap-2"
                                     >
-                                        <span className="font-bold text-white block">{opt.name}</span>
-                                        <span className="text-[#A0A4A8] text-[9px] mt-1 block">{opt.interval} / {opt.period}</span>
+                                        {isRunning ? (
+                                            <>
+                                                <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
+                                                Analyzing Market & Running Agents...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>⚡</span> Analyze Market & Generate Signal
+                                            </>
+                                        )}
                                     </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Order execution panel */}
-                        <div className="leetcode-panel p-5 rounded">
-                            <button 
-                                onClick={handleExecute}
-                                disabled={isRunning}
-                                className="w-full bg-[#29B86F] hover:bg-opacity-90 disabled:opacity-50 text-[#1A1A1A] font-mono font-bold tracking-widest py-3 rounded text-xs uppercase transition-all duration-200 flex items-center justify-center space-x-2"
-                            >
-                                <span>{isRunning ? "PROCESSING QUANT PIPELINE..." : "RUN MULTI-AGENT EXECUTION"}</span>
-                                {isRunning && (
-                                    <div className="w-4 h-4 border-2 border-black border-t-transparent animate-spin rounded-full"></div>
-                                )}
-                            </button>
-                        </div>
-
-                    </main>
-
-                    {/* RIGHT COLUMN: SIDEBAR (3 Columns) */}
-                    <aside className="col-span-1 lg:col-span-3 flex flex-col gap-6">
-                        
-                        {/* Gamification / Achievements / Leaderboard */}
-                        <div className="leetcode-panel p-5 rounded">
-                            <div className="border-b border-[#3F3F3F] pb-3 mb-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-[#3DD9F7]">
-                                    System Achievements
-                                </h3>
-                            </div>
-                            
-                            <div className="space-y-3 font-mono text-[10px]">
-                                <div className="flex items-center justify-between p-2 rounded bg-[#1A1A1A] border border-[#3F3F3F]">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[#29B86F]">✔</span>
-                                        <div>
-                                            <p className="font-bold text-white">Tunnel Established</p>
-                                            <p className="text-[9px] text-[#A0A4A8]">Operator credentials verified</p>
-                                        </div>
-                                    </div>
-                                    <span className="text-[#29B86F]">10 XP</span>
                                 </div>
+                            </div>
+
+                            {/* RIGHT AREA: STRATEGY SIGNAL & ACTIVITY LOGS (4 Columns) */}
+                            <div className="lg:col-span-4 space-y-4">
                                 
-                                <div className={`flex items-center justify-between p-2 rounded bg-[#1A1A1A] border ${totalRuns > 0 ? 'border-[#3F3F3F]' : 'border-transparent opacity-60'}`}>
-                                    <div className="flex items-center gap-2">
-                                        <span className={totalRuns > 0 ? "text-[#29B86F]" : "text-[#A0A4A8]"}>
-                                            {totalRuns > 0 ? "✔" : "○"}
-                                        </span>
-                                        <div>
-                                            <p className="font-bold text-white">Quantum Explorer</p>
-                                            <p className="text-[9px] text-[#A0A4A8]">Executed first agent check</p>
-                                        </div>
+                                {/* Strategy Signal Output Card */}
+                                <div className="bn-panel p-4 flex flex-col justify-between min-h-[280px]">
+                                    <div className="border-b border-[var(--bn-border)] pb-2.5 mb-3">
+                                        <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--bn-text)] flex items-center justify-between">
+                                            <span>Market Signal</span>
+                                            {decision && (
+                                                <span className={decision.risk_status === 'APPROVED' ? 'bn-tag-green' : 'bn-tag-red'}>
+                                                    {decision.risk_status}
+                                                </span>
+                                            )}
+                                        </h3>
                                     </div>
-                                    <span className="text-[#3DD9F7]">30 XP</span>
+
+                                    {decision ? (
+                                        <div className="space-y-3 text-xs">
+                                            <div className="flex justify-between items-center bg-[var(--bn-surface)] p-2.5 rounded border border-[var(--bn-border)]">
+                                                <span className="text-[var(--bn-text-secondary)]">Decision:</span>
+                                                <span className={`font-bold font-mono text-sm ${decision.action.includes('BUY') ? 'text-[#0ECB81]' : (decision.action.includes('SELL') ? 'text-[#F6465D]' : 'text-[var(--bn-text)]')}`}>
+                                                    {decision.action}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between items-center bg-[var(--bn-surface)] p-2.5 rounded border border-[var(--bn-border)]">
+                                                <span className="text-[var(--bn-text-secondary)]">Allocation:</span>
+                                                <span className="font-semibold text-[var(--bn-text)] font-mono text-[11px]">{decision.budget_allocation}</span>
+                                            </div>
+
+                                            <div className="grid grid-cols-3 gap-1.5 text-center font-mono">
+                                                <div className="bg-[var(--bn-surface)] p-2 rounded border border-[var(--bn-border)]">
+                                                    <span className="text-[9px] text-[var(--bn-text-secondary)] block font-sans">Entry</span>
+                                                    <span className="font-bold text-[var(--bn-primary)] text-xs">
+                                                        {decision.ENTRY_PRICE > 0 ? '$' + decision.ENTRY_PRICE.toFixed(2) : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div className="bg-[var(--bn-surface)] p-2 rounded border border-[var(--bn-border)]">
+                                                    <span className="text-[9px] text-[var(--bn-text-secondary)] block font-sans">Take Profit</span>
+                                                    <span className="font-bold text-[#0ECB81] text-xs">
+                                                        {decision.TAKE_PROFIT > 0 ? '$' + decision.TAKE_PROFIT.toFixed(2) : 'N/A'}
+                                                    </span>
+                                                </div>
+                                                <div className="bg-[var(--bn-surface)] p-2 rounded border border-[var(--bn-border)]">
+                                                    <span className="text-[9px] text-[var(--bn-text-secondary)] block font-sans">Stop Loss</span>
+                                                    <span className="font-bold text-[#F6465D] text-xs">
+                                                        {decision.STOP_LOSS > 0 ? '$' + decision.STOP_LOSS.toFixed(2) : 'N/A'}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Quantitative Risk Layer */}
+                                            {decision.var_95 !== undefined && decision.var_95 !== null && (
+                                                <div className="grid grid-cols-3 gap-1 bg-[var(--bn-surface)] p-2 rounded border border-[var(--bn-border)] text-[10px] font-mono text-center">
+                                                    <div>
+                                                        <span className="text-[var(--bn-text-secondary)] text-[9px] block font-sans">VaR (95%)</span>
+                                                        <span className="text-[#FF7A45] font-bold">{decision.var_95}%</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[var(--bn-text-secondary)] text-[9px] block font-sans">CVaR (95%)</span>
+                                                        <span className="text-[#F6465D] font-bold">{decision.cvar_95}%</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[var(--bn-text-secondary)] text-[9px] block font-sans">Kelly Size</span>
+                                                        <span className="text-[#0ECB81] font-bold">{decision.kelly_recommended_pct}%</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Debate Perspectives */}
+                                            {decision.debate_summary && (
+                                                <div className="bg-[var(--bn-surface)] p-2.5 rounded border border-[var(--bn-border)] space-y-1.5 text-[10px]">
+                                                    <div className="flex justify-between items-center border-b border-[var(--bn-border)] pb-1">
+                                                        <span className="text-[var(--bn-text-secondary)] font-semibold uppercase">Multi-Agent Debate:</span>
+                                                        <span className="text-[#0ECB81] font-bold font-mono">{(decision.debate_summary.consensus_score * 100).toFixed(0)}% Conviction</span>
+                                                    </div>
+                                                    {decision.debate_summary.bull_perspective?.argument && (
+                                                        <div className="text-[#0ECB81] leading-tight">
+                                                            <strong className="text-[var(--bn-text)] font-sans">Bull:</strong> {decision.debate_summary.bull_perspective.argument}
+                                                        </div>
+                                                    )}
+                                                    {decision.debate_summary.bear_perspective?.argument && (
+                                                        <div className="text-[#F6465D] leading-tight">
+                                                            <strong className="text-[var(--bn-text)] font-sans">Bear:</strong> {decision.debate_summary.bear_perspective.argument}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            <div className="pt-2 text-[10px] text-[var(--bn-text-secondary)] border-t border-[var(--bn-border)] leading-relaxed">
+                                                <strong className="text-[var(--bn-text)] block mb-0.5">Summary:</strong>
+                                                {decision.justification}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center text-[var(--bn-text-secondary)] text-xs my-auto py-8">
+                                            {isRunning ? "Running Multi-Agent Quantitative Pipeline..." : "Awaiting Market Analysis"}
+                                        </div>
+                                    )}
                                 </div>
 
-                                <div className={`flex items-center justify-between p-2 rounded bg-[#1A1A1A] border ${approvedRuns > 0 ? 'border-[#3F3F3F]' : 'border-transparent opacity-60'}`}>
-                                    <div className="flex items-center gap-2">
-                                        <span className={approvedRuns > 0 ? "text-[#29B86F]" : "text-[#A0A4A8]"}>
-                                            {approvedRuns > 0 ? "✔" : "○"}
+                                {/* Execution Terminal Logs */}
+                                <div className="bn-panel p-4 flex flex-col justify-between h-[230px]">
+                                    <div className="border-b border-[var(--bn-border)] pb-2 mb-2 flex items-center justify-between">
+                                        <span className="text-xs font-bold text-[var(--bn-text)]">
+                                            Terminal Activity Log
                                         </span>
-                                        <div>
-                                            <p className="font-bold text-white">Audit Compliant</p>
-                                            <p className="text-[9px] text-[#A0A4A8]">Risk Manager approved run</p>
-                                        </div>
+                                        <span className="text-[10px] font-mono text-[var(--bn-text-secondary)]">
+                                            Autonomous Desk
+                                        </span>
                                     </div>
-                                    <span className="text-[#3DD9F7]">50 XP</span>
+                                    <pre className="flex-grow font-mono text-[10px] text-[#0ECB81] overflow-y-auto bg-[var(--bn-surface)] p-3 rounded leading-relaxed whitespace-pre-wrap select-all border border-[var(--bn-border)]">
+                                        {logs}
+                                    </pre>
                                 </div>
+
                             </div>
                         </div>
 
-                        {/* Real-time price targets monitor */}
-                        <div className="leetcode-panel p-5 rounded flex-grow flex flex-col min-h-[220px]">
-                            <div className="border-b border-[#3F3F3F] pb-3 mb-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-[#3DD9F7]">
-                                    Live Strategy Targets
-                                </h3>
+                        {/* 4. USER TRADE HISTORY TABLE (Scoped strictly to this user!) */}
+                        <div className="bn-panel p-5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--bn-border)] pb-3 mb-4">
+                                <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-xs uppercase tracking-wider text-[var(--bn-text)]">
+                                        Trade History
+                                    </h3>
+                                    <span className="text-[11px] text-[var(--bn-text-secondary)]">
+                                        (Account: <strong className="text-[var(--bn-text)]">{operator?.full_name}</strong>)
+                                    </span>
+                                </div>
+                                <button 
+                                    onClick={fetchUserTrades}
+                                    className="bn-btn-secondary text-[11px] py-1"
+                                >
+                                    Refresh History
+                                </button>
                             </div>
                             
-                            {decision ? (
-                                <div className="space-y-3 font-mono text-[11px] flex-grow flex flex-col justify-between">
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between items-center bg-[#1A1A1A] p-2 rounded border border-[#3F3F3F]">
-                                            <span className="text-[#A0A4A8]">SIGNAL TIER:</span>
-                                            <span className={`font-bold uppercase ${decision.action.includes('BUY') ? 'text-[#29B86F]' : (decision.action.includes('SELL') ? 'text-[#FF7A45]' : 'text-[#A0A4A8]')}`}>
-                                                {decision.action}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between items-center bg-[#1A1A1A] p-2 rounded border border-[#3F3F3F]">
-                                            <span className="text-[#A0A4A8]">RISK COMPLY:</span>
-                                            <span className={`font-bold ${decision.risk_status === 'APPROVED' ? 'text-[#29B86F]' : 'text-[#EF4743]'}`}>
-                                                {decision.risk_status}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between items-center bg-[#1A1A1A] p-2 rounded border border-[#3F3F3F]">
-                                            <span className="text-[#A0A4A8]">ALLOCATION:</span>
-                                            <span className="font-bold text-white">{decision.budget_allocation}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center bg-[#1A1A1A] p-2 rounded border border-[#3F3F3F]">
-                                            <span className="text-[#A0A4A8]">ENTRY PRICE:</span>
-                                            <span className="font-bold text-[#3DD9F7]">${decision.ENTRY_PRICE && !isNaN(decision.ENTRY_PRICE) ? parseFloat(decision.ENTRY_PRICE).toFixed(2) : '0.00'}</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="pt-2 text-[9px] text-[#A0A4A8] leading-tight border-t border-[#3F3F3F]">
-                                        <span className="font-bold block text-white mb-0.5">JUSTIFICATION:</span>
-                                        {decision.justification}
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="text-center text-[#A0A4A8] text-[10px] font-mono my-auto">
-                                    {isRunning ? "ANALYZING SIGNAL MATH..." : "AWAITING MULTI-AGENT EXECUTION RUN"}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Real-time traces logs */}
-                        <div className="leetcode-panel p-4 rounded h-[220px] flex flex-col justify-between">
-                            <div className="border-b border-[#3F3F3F] pb-2 mb-2">
-                                <span className="font-mono text-[10px] text-[#3DD9F7] uppercase tracking-wider font-bold">
-                                    Agent Live Traces Monitor
-                                </span>
+                            <div className="overflow-x-auto max-h-[260px]">
+                                <table className="w-full text-left text-xs">
+                                    <thead>
+                                        <tr className="border-b border-[var(--bn-border)] text-[var(--bn-text-secondary)] uppercase text-[10px]">
+                                            <th className="py-2.5">Time (UTC)</th>
+                                            <th className="py-2.5">Pair</th>
+                                            <th className="py-2.5">Side / Action</th>
+                                            <th className="py-2.5">Risk Audit</th>
+                                            <th className="py-2.5">Capital</th>
+                                            <th className="py-2.5">Allocation</th>
+                                            <th className="py-2.5">Entry</th>
+                                            <th className="py-2.5">Take Profit</th>
+                                            <th className="py-2.5">Stop Loss</th>
+                                            <th className="py-2.5">Outcome / Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-[var(--bn-border)] font-mono text-[11px]">
+                                        {trades.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="10" className="py-8 text-center text-[var(--bn-text-secondary)] font-sans">
+                                                    No trades found for this account. Execute an order analysis to record signals.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            trades.map(r => {
+                                                const formattedDate = new Date(r.timestamp).toISOString().replace("T", " ").slice(0, 19);
+                                                
+                                                let statusColor = "text-[var(--bn-text-secondary)]";
+                                                const st = (r.status || "").toLowerCase();
+                                                if (st.includes("profit")) statusColor = "text-[#0ECB81] font-bold";
+                                                else if (st.includes("loss")) statusColor = "text-[#F6465D] font-bold";
+                                                else if (st.includes("running")) statusColor = "text-[#FCD535] font-semibold animate-pulse";
+                                                
+                                                return (
+                                                    <tr key={r.id} className="hover:bg-[var(--bn-surface)] transition-colors">
+                                                        <td className="py-2.5 text-[var(--bn-text-secondary)]">{formattedDate}</td>
+                                                        <td className="py-2.5 font-bold text-[var(--bn-text)]">{r.ticker}</td>
+                                                        <td className="py-2.5">
+                                                            <span className={r.action.includes('BUY') ? 'bn-tag-green' : (r.action.includes('SELL') ? 'bn-tag-red' : 'bn-tag-neutral')}>
+                                                                {r.action}
+                                                            </span>
+                                                        </td>
+                                                        <td className={`py-2.5 font-bold ${r.risk_status === 'APPROVED' ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                                            {r.risk_status}
+                                                        </td>
+                                                        <td className="py-2.5 text-[var(--bn-text)]">{r.stable_capital}</td>
+                                                        <td className="py-2.5 text-[var(--bn-primary)]">{r.budget_allocation}</td>
+                                                        <td className="py-2.5 text-[var(--bn-text)]">
+                                                            {r.entry_price && r.entry_price !== '0.0' && r.entry_price !== '0' ? '$' + parseFloat(r.entry_price).toFixed(2) : 'N/A'}
+                                                        </td>
+                                                        <td className="py-2.5 text-[#0ECB81]">
+                                                            {r.take_profit && r.take_profit !== '0.0' && r.take_profit !== '0' ? '$' + parseFloat(r.take_profit).toFixed(2) : 'N/A'}
+                                                        </td>
+                                                        <td className="py-2.5 text-[#F6465D]">
+                                                            {r.stop_loss && r.stop_loss !== '0.0' && r.stop_loss !== '0' ? '$' + parseFloat(r.stop_loss).toFixed(2) : 'N/A'}
+                                                        </td>
+                                                        <td className={`py-2.5 ${statusColor}`}>
+                                                            {r.status || "RUNNING"}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
-                            <pre className="flex-grow font-mono text-[9px] text-[#29B86F] overflow-y-auto bg-black p-3.5 rounded leading-relaxed whitespace-pre-wrap select-all border border-[#3F3F3F]">
-                                {logs}
-                            </pre>
                         </div>
-
-                    </aside>
-                </div>
+                    </div>
+                )}
             </div>
 
-            {/* 4. FOOTER LEDGER TABLE */}
-            <footer className="leetcode-panel p-6 rounded mt-6 font-mono">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#3F3F3F] pb-3 mb-4">
-                    <h4 className="font-sans font-bold text-xs tracking-wider uppercase text-white">
-                        Neon PostgreSQL Relational Ledgers - Execution Audit Registry
-                    </h4>
-                    <button 
-                        onClick={fetchHistory}
-                        className="text-[10px] text-[#3DD9F7] hover:underline transition-all"
-                    >
-                        REFRESH LEDGERS &rarr;
-                    </button>
+            {/* Footer */}
+            <footer className="mt-6 pt-3 border-t border-[var(--bn-border)] text-center text-xs text-[var(--bn-text-secondary)] flex flex-col sm:flex-row items-center justify-between gap-2">
+                <div>
+                    FinAgentra Multi-Agent Trading System &copy; 2026. All rights reserved.
                 </div>
-                
-                <div className="overflow-x-auto max-h-[220px]">
-                    <table className="w-full text-left text-[10px]">
-                        <thead>
-                            <tr className="border-b border-[#3F3F3F] text-[#A0A4A8] uppercase tracking-wider text-[9px]">
-                                <th className="py-2 pb-3 font-semibold">Timestamp (UTC)</th>
-                                <th className="py-2 pb-3 font-semibold">Operator</th>
-                                <th className="py-2 pb-3 font-semibold">Asset</th>
-                                <th className="py-2 pb-3 font-semibold">Decision</th>
-                                <th className="py-2 pb-3 font-semibold">Risk Audit</th>
-                                <th className="py-2 pb-3 font-semibold">Capital</th>
-                                <th className="py-2 pb-3 font-semibold">Alloc. Budget</th>
-                                <th className="py-2 pb-3 font-semibold">Entry</th>
-                                <th className="py-2 pb-3 font-semibold">TP Target</th>
-                                <th className="py-2 pb-3 font-semibold">SL Target</th>
-                                <th className="py-2 pb-3 font-semibold">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#3F3F3F] divide-opacity-30">
-                            {audits.length === 0 ? (
-                                <tr>
-                                    <td colSpan="11" className="py-6 text-center text-[#A0A4A8] uppercase">
-                                        No audits registered. Run a quantitative cycle to populate Neon tables.
-                                    </td>
-                                </tr>
-                            ) : (
-                                audits.map(r => {
-                                    const formattedDate = new Date(r.timestamp).toISOString().replace("T", " ").slice(0, 19);
-                                    
-                                    // Determine status pill colors dynamically
-                                    let statusColor = "text-[#A0A4A8]";
-                                    const st = (r.status || "").toLowerCase();
-                                    if (st.includes("profit")) statusColor = "text-[#29B86F] font-bold";
-                                    else if (st.includes("loss")) statusColor = "text-[#EF4743] font-bold";
-                                    else if (st.includes("running")) statusColor = "text-[#3DD9F7] font-semibold animate-pulse";
-                                    
-                                    return (
-                                        <tr key={r.id} className="hover:bg-white hover:bg-opacity-5 transition-colors">
-                                            <td className="py-2.5 text-[#A0A4A8]">{formattedDate}</td>
-                                            <td className="py-2.5 text-[#3DD9F7] font-medium">{r.user_name}</td>
-                                            <td className="py-2.5 text-[#E4E6EB]">{r.ticker}</td>
-                                            <td className={`py-2.5 font-bold ${r.action.includes('BUY') ? 'text-[#29B86F]' : (r.action.includes('SELL') ? 'text-[#FF7A45]' : 'text-[#A0A4A8]')}`}>
-                                                {r.action}
-                                            </td>
-                                            <td className={`py-2.5 font-bold ${r.risk_status === 'APPROVED' ? 'text-[#29B86F]' : 'text-[#EF4743]'}`}>
-                                                {r.risk_status}
-                                            </td>
-                                            <td className="py-2.5 text-[#E4E6EB]">{r.stable_capital}</td>
-                                            <td className="py-2.5 text-[#FF7A45]">{r.budget_allocation}</td>
-                                            <td className="py-2.5 text-[#3DD9F7]">
-                                                {r.entry_price && r.entry_price !== '0.0' && r.entry_price !== '0' ? '$' + parseFloat(r.entry_price).toFixed(2) : 'N/A'}
-                                            </td>
-                                            <td className="py-2.5 text-[#29B86F]">
-                                                {r.take_profit && r.take_profit !== '0.0' && r.take_profit !== '0' ? '$' + parseFloat(r.take_profit).toFixed(2) : 'N/A'}
-                                            </td>
-                                            <td className="py-2.5 text-[#EF4743]">
-                                                {r.stop_loss && r.stop_loss !== '0.0' && r.stop_loss !== '0' ? '$' + parseFloat(r.stop_loss).toFixed(2) : 'N/A'}
-                                            </td>
-                                            <td className={`py-2.5 text-[9px] font-mono ${statusColor}`}>
-                                                {r.status || "RUNNING"}
-                                            </td>
-                                        </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
+                <div className="flex items-center gap-3 text-[11px]">
+                    <span>Security: Provable Bounded Risk</span>
+                    <span>•</span>
+                    <span>Execution: Asynchronous Multi-Agent</span>
                 </div>
             </footer>
         </div>
@@ -998,12 +2276,11 @@ function Dashboard({ operator, onSignOut }) {
 }
 
 // ==========================================================================
-// 4. ENTRY COMPONENT: App wrapper containing Router
+// 5. ROOT APPLICATION COMPONENT
 // ==========================================================================
 function App() {
     const [operator, setOperator] = useState(null);
 
-    // Read operator session storage on boot
     useEffect(() => {
         const stored = sessionStorage.getItem("active_operator");
         if (stored) {
@@ -1032,7 +2309,6 @@ function App() {
     return <Dashboard operator={operator} onSignOut={handleSignOut} />;
 }
 
-// Render the application node root cleanly
-const container = document.getElementById("root");
-const root = ReactDOM.createRoot(container);
+// Mount to DOM
+const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);

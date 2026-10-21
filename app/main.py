@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -50,6 +50,10 @@ def create_app() -> FastAPI:
     # Register Routers
     app.include_router(views_router)
     app.include_router(api_router, prefix="/api")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return Response(content=b"", media_type="image/x-icon", status_code=204)
 
     return app
 

@@ -26,7 +26,7 @@ async def get_price_chart_data(ticker: str, period: str = "7d", interval: str = 
         volume = int(df['Volume'].iloc[-1])
 
         candles = []
-        df_last = df.tail(24)
+        df_last = df.tail(300) if len(df) > 300 else df
         for timestamp, row in df_last.iterrows():
             candles.append(Candle(
                 time=timestamp.strftime("%Y-%m-%d %H:%M:%S") if hasattr(timestamp, "strftime") else str(timestamp),

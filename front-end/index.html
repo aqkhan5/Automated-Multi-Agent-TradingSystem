@@ -1,49 +1,56 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Automated Multi-Agentic Trading System - LeetCode Dashboard</title>
+    <title>FinAgentra | Automated Multi-Agent Trading Terminal</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
     
-    <!-- Google Fonts: Inter (LeetCode primary) & JetBrains Mono (monospaced data) -->
+    <!-- Google Fonts: Inter & JetBrains Mono -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Tailwind Theme Config Mapping to LeetCode Palette -->
+    <!-- Tailwind Theme Config Mapping to FinAgentra Palette -->
     <script>
         if (typeof tailwind !== 'undefined') {
             tailwind.config = {
+                darkMode: ['class', '[data-theme="dark"]'],
                 theme: {
                     extend: {
                         fontFamily: {
-                            sans: ['Inter', 'sans-serif'],
+                            sans: ['Inter', 'system-ui', 'sans-serif'],
                             mono: ['"JetBrains Mono"', 'monospace']
                         },
                         colors: {
-                            leetcode: {
-                                bg: '#1A1A1A',
-                                panel: '#232323',
-                                border: '#3F3F3F',
-                                accent: '#3DD9F7',
-                                success: '#29B86F',
-                                warning: '#FF7A45',
-                                danger: '#EF4743',
-                                text: '#E4E6EB',
-                                textSecondary: '#A0A4A8'
+                            bn: {
+                                yellow: '#FCD535',
+                                gold: '#F0B90B',
+                                green: '#0ECB81',
+                                red: '#F6465D',
+                                darkBg: '#181A20',
+                                darkCard: '#1E2329',
+                                darkSurface: '#2B313A',
+                                darkBorder: '#2B313A',
+                                lightBg: '#FAFAFA',
+                                lightCard: '#FFFFFF',
+                                lightSurface: '#F5F5F5',
+                                lightBorder: '#EAECEF',
+                                text: '#EAECEF',
+                                muted: '#848E9C'
                             }
                         }
                     }
                 }
-            }
-        };
+            };
+        }
     </script>
     
-    <!-- Custom CSS Stylesheet for LeetCode Overrides -->
-    <link rel="stylesheet" href="/static/style.css?v=1.0.3">
+    <!-- Custom CSS Stylesheet for FinAgentra Theme -->
+    <link rel="stylesheet" href="/static/style.css?v=1.0.11">
 </head>
-<body class="bg-[#1A1A1A] text-[#E4E6EB] min-h-screen antialiased select-none">
+<body class="min-h-screen antialiased select-none font-sans">
 
     <!-- Mounting Node for React App -->
     <div id="root"></div>
@@ -52,12 +59,17 @@
     <script src="/static/react.production.min.js"></script>
     <script src="/static/react-dom.production.min.js"></script>
     
+    <!-- TradingView Lightweight Charts Library (Local) -->
+    <script src="/static/lightweight-charts.standalone.production.js"></script>
+    
+    <!-- TradingView Advanced Real-Time Charting Widget -->
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    
     <!-- Babel Standalone Local File for on-the-fly JSX Compilation in app.js -->
     <script src="/static/babel.min.js"></script>
     
     <!-- React Main Application Logic -->
-    <script type="text/babel" data-presets="react" src="/static/app.js?v=1.0.3"></script>
+    <script type="text/babel" data-presets="react" src="/static/app.js?v=1.0.12"></script>
 
 </body>
 </html>
-
